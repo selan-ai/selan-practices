@@ -12,10 +12,19 @@ shorter `CLAUDE.md` and a setup that reads less, each change with the numbers be
 Then, inside the repository:
 
 ```
-/selan-practices:context-audit
+/selan-practices:context-audit    what every request pays for, and how to cut it
+/selan-practices:skill-audit      which skills are used, ignored, shadowed or missing
 ```
 
-## What it looks at
+## Skill audit
+
+Lists the skills and agents a session has (project, user, plugin), then checks the
+transcripts for which ones ran, which failed, and which were worked around: sessions that
+ran a skill's own commands without calling it. It also flags two skills with the same name,
+where only one ever runs, and throwaway scripts written to `/tmp` in session after session,
+which usually means a skill is missing.
+
+## Context audit
 
 `CLAUDE.md` is sent with every request, so its size times your request count is often the
 largest single cost. The audit also counts work done in another repository from this one,
