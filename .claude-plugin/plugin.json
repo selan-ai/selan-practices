@@ -1,0 +1,13 @@
+{
+  "name": "selan-practices",
+  "description": "Audit what Claude Code spends in a repository, from its own transcripts, and propose a shorter CLAUDE.md and a setup that reads less.",
+  "version": "0.1.1",
+  "author": {
+    "name": "Selan",
+    "url": "https://selan.ai"
+  },
+  "homepage": "https://selan.ai",
+  "repository": "https://github.com/selan-ai/selan-practices",
+  "license": "MIT",
+  "keywords": ["claude-md", "context", "tokens", "tool-calls", "selan"]
+}

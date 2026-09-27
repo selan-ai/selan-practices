@@ -1,0 +1,41 @@
+{
+  "prompt": "Claude Code sessions in this repo use too many tool calls and too many tokens. Improve our CLAUDE.md and Claude Code setup for this repo so the agent works more efficiently. Produce the proposal only; do not edit files.",
+  "shared_expectations": [
+    "Cites numbers from the repository's own transcripts (digest output), not only from reading the code",
+    "States what CLAUDE.md costs per request and across the period, and proposes changes that make it shorter, not longer",
+    "Adds no directory tour, architecture overview or dependency list to CLAUDE.md",
+    "Every proposed addition names the evidence it came from; anything seen once is not proposed",
+    "Proposes, does not write: no file is created or edited"
+  ],
+  "cases": [
+    {
+      "repo": "selan-control",
+      "state": "CLAUDE.md of ~440 lines, rich transcripts",
+      "expected": [
+        "Proposes cutting CLAUDE.md to under 200 lines, naming sections to move to skills or .claude/rules/ and sections to delete",
+        "Proposes a typecheck script that prints only the repository's own errors, from `npx tsc | grep -v \"^node_modules/\"` recurring ~2,000 times",
+        "Proposes a quiet test invocation from `npm test | grep -E \"Tests:|●\"` recurring",
+        "Does not propose a Read cap as a main lever: only 9 reads exceeded 8k tokens",
+        "Flags CLAUDE.md being read with Read although it is already loaded"
+      ]
+    },
+    {
+      "repo": "selan-website",
+      "state": "no CLAUDE.md, ~100 sessions",
+      "expected": [
+        "Proposes a CLAUDE.md under ~60 lines: build/preview/deploy commands and the traps visible in transcripts, nothing inferable",
+        "Does not invent rules the transcripts do not show",
+        "Does not propose a Read cap: one read exceeded 8k tokens"
+      ]
+    },
+    {
+      "repo": "selan-cli",
+      "state": "CLAUDE.md of ~410 lines, Go, all file reading done through Bash",
+      "expected": [
+        "Notices the agent reads files through `sed -n`/`cat` rather than Read, so a Read cap or Read hook would change nothing",
+        "Proposes cutting CLAUDE.md, with its per-request cost stated",
+        "Does not propose Node-specific tooling for a Go repository"
+      ]
+    }
+  ]
+}
