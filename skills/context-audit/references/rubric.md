@@ -37,7 +37,10 @@ Test for every line: could you tell from the agent's output whether it followed 
 ## Move out of CLAUDE.md
 
 - A section longer than ~15 lines that one kind of task needs: a skill.
-- A section about one directory: `.claude/rules/` with `paths:`.
+- A section about one directory: `.claude/rules/` with `paths:`. A path rule loads only when a
+  matching file is opened with Read, so a reviewer that reads the diff through `git diff` never
+  sees it: add to the repository's review agent "Before reviewing, Read every
+  `.claude/rules/*.md` whose `paths:` match a file in the diff."
 - A "never do X" that a tool can check: `permissions.deny`, a hook, or a lint rule.
 - Background and history ("why we moved off X in 2025"): `docs/`, linked in one line.
 
