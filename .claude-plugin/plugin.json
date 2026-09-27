@@ -1,7 +1,7 @@
 {
   "name": "selan-practices",
   "description": "Audit what Claude Code spends in a repository, from its own transcripts, and propose a shorter CLAUDE.md and a setup that reads less.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": {
     "name": "Selan",
     "url": "https://selan.ai"

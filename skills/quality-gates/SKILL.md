@@ -37,6 +37,7 @@ to prove it passes on the current tree, and show the diff. Never commit.
 
 | Report line | Proposal |
 | --- | --- |
+| Merge enforcement: OFF | Lead with this: every "CI blocks" cell is a suggestion until the project requires a green pipeline (GitLab "Pipelines must succeed", GitHub required status checks). It is a project setting, not a file: say so and name the setting. |
 | A rung CI runs only on the default branch, none on merge requests | A blocking MR job for it: the merge is the gate, not the deploy. |
 | lint, typecheck, build or unit with no blocking CI job | Add it to the blocking test job. |
 | A rung with only a local command | A blocking CI job; a local command alone is a suggestion. |

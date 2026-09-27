@@ -16,7 +16,7 @@ HOME = Path.home() / ".claude"
 KINDS = [
     ("format", r"prettier|biome format|gofmt|goimports|ruff format|\bblack\b|--write"),
     ("lint", r"biome (check|lint|ci)|eslint|go vet|golangci|ruff( check)?\b|\blint\b"),
-    ("typecheck", r"\btsc\b|typecheck|mypy|pyright"),
+    ("typecheck", r"\btsc\b|typecheck|mypy|pyright|go vet|go build"),
     ("build", r"\bbuild\b"),
     ("unit", r"\bjest\b|vitest|go test|pytest|\btest(:quiet|:coverage)?\b|check\.sh|test\.sh"),
     ("integration", r"integration"),
@@ -48,9 +48,22 @@ def kinds_of(text):
     return [k for k, p in KINDS if re.search(p, text, re.I)]
 
 
+def package_scripts(root):
+    try:
+        return json.loads((root / "package.json").read_text()).get("scripts") or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def expand(text, scripts):
+    """`pnpm run build` means whatever package.json says build is: `tsc && tsup` is a typecheck too."""
+    return re.sub(r"\b(?:npm|pnpm|yarn)(?: -s)?(?: run)? ([\w:-]+)",
+                  lambda m: f"{m.group(0)} {scripts.get(m.group(1), '')}", text)
+
+
 def ci_jobs(root):
     """GitLab and GitHub jobs, parsed by indentation: enough to name a job, its script and whether it blocks."""
-    jobs = []
+    jobs, scripts = [], package_scripts(root)
     gl = root / ".gitlab-ci.yml"
     if gl.is_file():
         name, body = None, []
@@ -59,12 +72,16 @@ def ci_jobs(root):
             if m or line == "END:":
                 if name and name not in RESERVED:
                     text = "\n".join(body)
-                    script = "\n".join(l for l in body if re.match(r"^\s+- ", l) and "script" not in l)
+                    # Everything but the job's plumbing, so a multi-line `- |` script block is read too.
+                    script = expand("\n".join(l for l in body if not re.match(
+                        r"^\s+(rules|- if:|if:|when:|image:|tags:|stage:|needs:|cache:|artifacts:|variables:|services:|- name:|name:|entrypoint:|#)", l)), scripts)
                     jobs.append({
                         "ci": "gitlab", "name": name,
                         "blocking": not re.search(r"allow_failure:\s*true", text),
                         "manual": bool(re.search(r"when:\s*manual", text)),
-                        "kinds": sorted(set(kinds_of(name) + kinds_of(script))),
+                        # A review or secrets job's prompt mentions tests and builds; its name says what it gates.
+                        "kinds": [k for k in kinds_of(name) if k in ("review", "secrets")]
+                                 or sorted(set(kinds_of(name) + kinds_of(script))),
                     })
                 name, body = (m.group(1) if m else None), []
             elif name:
@@ -117,7 +134,7 @@ def commands(root):
     if pkg.is_file():
         try:
             for k, v in (json.loads(pkg.read_text()).get("scripts") or {}).items():
-                kinds = kinds_of(k) or kinds_of(v)
+                kinds = sorted(set(kinds_of(k) + kinds_of(v)))
                 if kinds:
                     found[f"npm run {k}"] = kinds
         except ValueError:
@@ -189,6 +206,32 @@ def compliance(root):
             "hookBlocks": dict(hook_blocks.most_common(5))}
 
 
+def merge_enforced(root):
+    """Whether a red pipeline stops the merge at all: without this, every blocking job is a suggestion."""
+    try:
+        url = subprocess.run(["git", "-C", str(root), "remote", "get-url", "origin"],
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"gitlab\.com[:/](.+?)(?:\.git)?$", url)
+    if m:
+        try:
+            out = subprocess.run(["glab", "api", "projects/" + m.group(1).replace("/", "%2F")],
+                                 capture_output=True, text=True, timeout=20).stdout
+            return {"host": "gitlab", "pipelineMustSucceed": json.loads(out).get("only_allow_merge_if_pipeline_succeeds")}
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return None
+    m = re.search(r"github\.com[:/](.+?)(?:\.git)?$", url)
+    if m:
+        try:
+            r = subprocess.run(["gh", "api", f"repos/{m.group(1)}/branches/main/protection"],
+                               capture_output=True, text=True, timeout=20)
+            return {"host": "github", "pipelineMustSucceed": r.returncode == 0 and "required_status_checks" in r.stdout}
+        except (OSError, subprocess.SubprocessError):
+            return None
+    return None
+
+
 def audit(root, files):
     jobs, hooks, cmds = ci_jobs(files), local_gates(files), commands(files)
     ladder = []
@@ -200,7 +243,8 @@ def audit(root, files):
             "ciBlocking": [j["name"] for j in jobs if kind in j["kinds"] and j["blocking"]],
             "ciAdvisory": [j["name"] for j in jobs if kind in j["kinds"] and not j["blocking"]],
         })
-    return {"root": str(root), "ladder": ladder, "ciJobs": jobs, "hooks": hooks, **compliance(root)}
+    return {"root": str(root), "ladder": ladder, "ciJobs": jobs, "hooks": hooks,
+            "mergeEnforced": merge_enforced(files), **compliance(root)}
 
 
 def print_report(rep):
@@ -213,6 +257,13 @@ def print_report(rep):
     missing = [r["kind"] for r in rep["ladder"] if not (r["local"] or r["hook"] or r["ciBlocking"] or r["ciAdvisory"])]
     if missing:
         print(f"  nowhere: {', '.join(missing)}")
+    me = rep["mergeEnforced"]
+    if me is None:
+        print("Merge enforcement: unknown (no gitlab/github remote, or no glab/gh login)")
+    elif me["pipelineMustSucceed"]:
+        print(f"Merge enforcement: a red pipeline blocks the merge ({me['host']})")
+    else:
+        print(f"Merge enforcement: OFF - a red pipeline does not stop the merge ({me['host']}), so 'CI blocks' blocks nothing")
     print(f"\nCommits: {rep['commits']}, of which {rep['commitsWithoutCheck']} with no lint/typecheck/test run since the last edit; --no-verify: {rep['noVerify']}")
     print(f"Checks run by sessions: {', '.join(f'{k} {v}' for k, v in rep['checksRun'].items()) or 'none'}")
     if rep["ciFailedJobs"]:
