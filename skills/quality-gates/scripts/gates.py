@@ -157,6 +157,20 @@ def sessions(root):
             yield from d.glob("*.jsonl")
 
 
+def elsewhere_cd(cmd, root):
+    """`cd ~/Repositories/other`, `cd ../other`: the command runs in another repository."""
+    for target in re.findall(r"(?:^|[;&|]\s*)cd\s+(['\"]?)([^\s;&|'\"]+)\1", cmd):
+        path = Path(os.path.expanduser(target[1]))
+        path = path if path.is_absolute() else root / path
+        try:
+            path = path.resolve()
+        except OSError:
+            continue
+        if not (path == root or str(path).startswith(str(root) + os.sep)):
+            return True
+    return False
+
+
 def compliance(root):
     """Commits made with no check since the last edit, --no-verify, CI failures seen, hooks that fired."""
     prefix, parent = str(root) + os.sep, str(root.parent) + os.sep
@@ -179,7 +193,10 @@ def compliance(root):
                     i += 1
                     inp = b.get("input") or {}
                     cmd = str(inp.get("command") or "")
-                    if re.search(re.escape(parent) + r"(?!" + re.escape(root.name) + r"[/\s'\"])", cmd):
+                    # Work in a sibling repository, named in the command or already cd'd into, is that repository's.
+                    if re.search(re.escape(parent) + r"(?!" + re.escape(root.name) + r"[/\s'\"])", cmd) \
+                            or (cwd and not (cwd == str(root) or cwd.startswith(prefix))) \
+                            or elsewhere_cd(cmd, root):
                         continue
                     if b.get("name") in ("Edit", "Write", "MultiEdit") or re.search(r"python3?\s+-\s*<<.*\.(replace|write)\(", cmd, re.S):
                         last_edit = i

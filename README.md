@@ -9,7 +9,28 @@ shorter `CLAUDE.md` and a setup that reads less, each change with the numbers be
 /plugin install selan-practices@selan-practices
 ```
 
-Then, inside the repository:
+Then, inside the repository, start here:
+
+```
+/selan-practices:setup            what the repository has, and a plan in plain words
+```
+
+It works on a new repository with no history, from the files alone. It recommends what to
+install, one component at a time:
+
+```
+/selan-practices:install code-review   an agent that reviews every merge request
+/selan-practices:install dead-code     knip, deadcode, vulture or clippy, by stack
+/selan-practices:install secrets       gitleaks over each merge request's commits
+/selan-practices:install quiet-check   one command that prints only failures
+/selan-practices:install commit-hook   the fast checks before a session commits
+```
+
+The code review component is the practice documented at
+https://selan.ai/docs/agents/code-review : that page explains every line, the plugin ships
+the files.
+
+Once there are a few weeks of sessions, the audits show what to cut and what is missing:
 
 ```
 /selan-practices:context-audit    what every request pays for, and how to cut it

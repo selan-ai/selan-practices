@@ -1,0 +1,56 @@
+# From https://selan.ai/docs/agents/code-review (GitLab CI). Merge the job into .gitlab-ci.yml; add the workflow block only if
+# the file has none, or every other job runs twice per push once MR pipelines exist.
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+review:
+  stage: test
+  image: node:26
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  allow_failure: true
+  timeout: 20m
+  interruptible: true
+  cache:
+    when: always
+    key: review-$CI_MERGE_REQUEST_IID
+    paths: [previous-review.md]
+  variables:
+    GIT_DEPTH: 0
+  script:
+    # Not `curl | sh`: piped, a failed `curl -f` leaves sh reading EOF and exiting 0,
+    # so the step goes green with nothing installed.
+    - curl -fsSL https://dl.selan.ai/install.sh -o /tmp/install-selan.sh
+    - sh /tmp/install-selan.sh
+    - npm install -g @anthropic-ai/claude-code
+
+    # `selan agent-run` passes --dangerously-skip-permissions, and Claude Code exits 1
+    # on that flag at uid 0. Container images run as root, so drop to a user.
+    - install -d -o node -g node /tmp/agent
+    - chown -R node:node "$CI_PROJECT_DIR"
+    - |
+      cat > /tmp/review.sh <<'SH'
+      export HOME=/tmp/agent
+      export CLAUDE_CONFIG_DIR=/tmp/agent/.claude
+      selan agent-run code-review \
+        "Review this merge request. \`git diff $CI_MERGE_REQUEST_DIFF_BASE_SHA HEAD\` is the change.
+         Write your review to $CI_PROJECT_DIR/review.md. Your previous review,
+         if there is one, is at $CI_PROJECT_DIR/previous-review.md."
+      SH
+      su -p node -c "sh /tmp/review.sh"
+
+    - |
+      [ -s review.md ] || { echo "the agent wrote no review" >&2; exit 1; }
+      cp review.md previous-review.md
+      node scripts/review-to-codequality.mjs review.md gl-code-quality-report.json
+  artifacts:
+    when: always
+    paths: [review.md, gl-code-quality-report.json]
+    reports:
+      codequality: gl-code-quality-report.json

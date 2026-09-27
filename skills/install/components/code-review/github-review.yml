@@ -1,0 +1,85 @@
+# From https://selan.ai/docs/agents/code-review (GitHub Actions). Copy to .github/workflows/review.yml.
+name: review
+
+on: pull_request
+
+concurrency:
+  group: review-${{ github.event.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install selan and Claude Code
+        shell: bash
+        run: |
+          curl -fsSL https://dl.selan.ai/install.sh | sh
+          npm install -g @anthropic-ai/claude-code
+
+      - name: Fetch the previous review
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.number }}
+        run: |
+          node -e '
+            (async () => {
+              const mine = []
+              for (let page = 1; ; page++) {
+                const res = await fetch(
+                  `${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}` +
+                  `/issues/${process.env.PR}/comments?per_page=100&page=${page}`,
+                  { headers: { Authorization: `Bearer ${process.env.GH_TOKEN}` } })
+                if (!res.ok) return
+                const batch = await res.json()
+                for (const c of batch) {
+                  if (c.user.login === "github-actions[bot]" && c.body.startsWith("# Review —")) {
+                    mine.push(c.body)
+                  }
+                }
+                if (batch.length < 100) break
+              }
+              if (mine.length) require("fs").writeFileSync(
+                `${process.env.GITHUB_WORKSPACE}/previous-review.md`, mine.at(-1))
+            })()
+          '
+
+      - name: Review
+        continue-on-error: true
+        env:
+          SELAN_TOKEN: ${{ secrets.SELAN_TOKEN }}
+        run: |
+          selan agent-run code-review \
+            "Review this pull request. \`git diff HEAD^1 HEAD\` is the change.
+             Write your review to $GITHUB_WORKSPACE/review.md. Your previous review,
+             if there is one, is at $GITHUB_WORKSPACE/previous-review.md."
+
+      - name: Post the review
+        continue-on-error: true
+        if: hashFiles('review.md') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.number }}
+        run: |
+          node -e 'require("fs").writeFileSync("payload.json", JSON.stringify({
+            body: require("fs").readFileSync("review.md", "utf8") }))'
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            -d @payload.json
