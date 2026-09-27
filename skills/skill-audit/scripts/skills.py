@@ -157,6 +157,11 @@ def usage(root, items):
             if it["kind"] != "skill" or it["name"] in used or it["id"] in used:
                 continue
             matched = {sig for cmd in cmds for sig in it["signatures"] if sig in cmd}
+            # Running the skill's own script is using the skill, whether or not the Skill tool was called.
+            if any(re.search(r"\.(sh|py|mjs|js)\b", s) and "/skills/" + it["name"] + "/" in cmd
+                   for cmd in cmds for s in matched if s in cmd):
+                invoked[it["id"]] += 1
+                continue
             scripted = any(s.endswith((".sh", ".py", ".mjs", ".js")) for s in matched)
             if len(matched) >= 2 or scripted:
                 hits = sum(1 for cmd in cmds for sig in matched if sig in cmd)
@@ -178,9 +183,9 @@ def references(root, items):
     return found
 
 
-def audit(root):
-    items = installed(root)
-    refs = references(root, items)
+def audit(root, files):
+    items = installed(files)
+    refs = references(files, items)
     n, invoked, errors, bcalls, bsess, adhoc = usage(root, items)
     by_name = defaultdict(list)
     for it in items:
@@ -254,6 +259,7 @@ def print_report(rep):
 
 if __name__ == "__main__":
     argv = sys.argv[1:]
-    root = main_checkout(Path(next((a for a in argv if not a.startswith("--")), os.getcwd())).resolve())
-    rep = audit(root)
+    # Sessions are keyed by the main checkout; files are read where the skill runs, which is current.
+    files = Path(next((a for a in argv if not a.startswith("--")), os.getcwd())).resolve()
+    rep = audit(main_checkout(files), files)
     print(json.dumps(rep, indent=2) if "--json" in argv else "", end="") if "--json" in argv else print_report(rep)

@@ -14,7 +14,17 @@ Then, inside the repository:
 ```
 /selan-practices:context-audit    what every request pays for, and how to cut it
 /selan-practices:skill-audit      which skills are used, ignored, shadowed or missing
+/selan-practices:quality-gates    what "done" means here, and where each check runs
 ```
+
+## Quality gates
+
+Draws the repository's quality ladder, cheapest rung first: format, lint, typecheck, build,
+unit, integration, e2e, budget, secrets, review. For each rung it shows where the check runs:
+a local command someone has to remember, a hook, an advisory CI job, or a CI job that blocks
+the merge. From the transcripts it counts commits made with no check since the last edit and
+the CI failures sessions ran into, then proposes the gaps worth closing: a rung that runs only
+on the default branch, a rung with only a local command, a missing secret scan.
 
 ## Skill audit
 

@@ -36,7 +36,9 @@ def main_checkout(path):
 def parse_args(argv):
     root = next((a for a in argv if not a.startswith("--") and not a.isdigit()), os.getcwd())
     cap = int(argv[argv.index("--cap") + 1]) if "--cap" in argv else 8000
-    return main_checkout(Path(root).resolve()), cap, "--json" in argv
+    # Sessions are keyed by the main checkout; files are read where the skill runs, which is current.
+    files = Path(root).resolve()
+    return main_checkout(files), files, cap, "--json" in argv
 
 
 def transcript_files(root):
@@ -220,7 +222,7 @@ def stale_paths(root):
     return sorted(p for p in inside if p.split("/")[0] in top and not (root / p).exists())
 
 
-def digest(root, cap):
+def digest(root, files, cap):
     sessions = [s for s in (session(root, p) for p in transcript_files(root)) if s]
     reads = [r for s in sessions for r in s["reads"] if r["file"]]
 
@@ -269,7 +271,7 @@ def digest(root, cap):
     for s in sessions:
         for repo, n in s["elsewhere"].items():
             elsewhere[repo] = elsewhere.get(repo, 0) + n
-    standing = standing_context(root)
+    standing = standing_context(files)
     filters = {}
     for b in bash:
         if b["piped"]:
@@ -282,8 +284,8 @@ def digest(root, cap):
         "elsewhere": dict(sorted(elsewhere.items(), key=lambda x: -x[1])[:8]),
         "habits": habits,
         "imagesRead": sum(s["images"] for s in sessions),
-        "stalePaths": stale_paths(root),
-        "editHooks": edit_hooks(root),
+        "stalePaths": stale_paths(files),
+        "editHooks": edit_hooks(files),
         "standing": {"files": standing, "tokens": sum(f["tokens"] for f in standing),
                      "carried": sum(f["tokens"] for f in standing) * requests},
         "pipedFilters": [{"cmd": c, "filter": f, "runs": n} for (c, f), n in sorted(filters.items(), key=lambda x: -x[1])[:10]],
@@ -363,8 +365,8 @@ def print_report(rep):
 
 
 if __name__ == "__main__":
-    root, cap, as_json = parse_args(sys.argv[1:])
-    rep = digest(root, cap)
+    root, files, cap, as_json = parse_args(sys.argv[1:])
+    rep = digest(root, files, cap)
     if as_json:
         print(json.dumps(rep, indent=2))
     else:
