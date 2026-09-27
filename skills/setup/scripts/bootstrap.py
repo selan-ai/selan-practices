@@ -98,11 +98,7 @@ def components(root):
         return "\n".join(p.read_text(errors="replace") for p in paths if p.is_file())
     ci_text = text(root / ".gitlab-ci.yml", *(root / ".github" / "workflows").glob("*.y*ml"))
     pkg = text(root / "package.json")
-    settings = text(root / ".claude" / "settings.json", *(root / ".claude" / "hooks").glob("*"))
     return {
-        "quiet-check": (root / "scripts" / "check.sh").is_file() or bool(re.search(r'"(check|verify|test:quiet)"\s*:', pkg)),
-        "commit-hook": "PreToolUse" in settings and "commit" in settings,
-        "secrets": bool(re.search(r"gitleaks|trufflehog|detect-secrets", ci_text)),
         "code-review": (root / ".claude" / "agents" / "code-review.md").is_file() and bool(re.search(r"code-review|review\.md", ci_text)),
         "dead-code": bool(re.search(r"\bknip\b|cmd/deadcode|\bvulture\b|dead_code", ci_text + pkg)),
     }

@@ -34,16 +34,14 @@ Two turns. This one reads nothing beyond the reports above and the repository's 
 
 1. **Your repository today**, five lines at most: stack, the checks it has, whether a red
    pipeline blocks a merge, `CLAUDE.md`, how many sessions there are to learn from.
-2. **The plan**, seven items at most, in this order, skipping what is already in place:
+2. **The plan**, five items at most, in this order, skipping what is already in place:
    1. `CLAUDE.md`: none yet, write one under 60 lines from the files (commands that differ
-      from the stack's defaults, the quiet check, nothing a reader of the code can see).
-      Over 200 lines, cut it (details: `/selan-practices:context-audit`).
-   2. `quiet-check`, when the repository has two or more checks and no single command.
-   3. Merge enforcement, when the report says OFF: the project setting to turn on.
-   4. `secrets`, when the ladder says nowhere.
-   5. Any rung CI checks only after merge: move it onto merge requests.
-   6. `commit-hook`, only when the ladder's commits-without-a-check is a fifth or more.
-   7. `code-review` and `dead-code`, as suggestions, one line each.
+      from the stack's defaults, nothing a reader of the code can see). Over 200 lines, cut
+      it (details: `/selan-practices:context-audit`).
+   2. Merge enforcement, when the report says OFF: the project setting to turn on.
+   3. Any rung CI checks only after merge: move it onto merge requests.
+   4. `code-review`, when the repository has none.
+   5. `dead-code`, as a suggestion.
    Each item: the plain sentence, the report line it comes from, the files it touches, and
    the `/selan-practices:install <component>` that does it when there is one.
 3. **One question**: which numbers to apply, or "all".

@@ -21,9 +21,6 @@ install, one component at a time:
 ```
 /selan-practices:install code-review   an agent that reviews every merge request
 /selan-practices:install dead-code     knip, deadcode, vulture or clippy, by stack
-/selan-practices:install secrets       gitleaks over each merge request's commits
-/selan-practices:install quiet-check   one command that prints only failures
-/selan-practices:install commit-hook   the fast checks before a session commits
 ```
 
 The code review component is the practice documented at

@@ -1,8 +1,8 @@
 ---
 name: install
-description: Use when adding a quality component to a repository - code review on merge requests, dead code detection, secret scanning, a quiet check script, or a commit hook - in whatever language the repository uses.
+description: Use when adding a quality component to a repository - code review on merge requests, or dead code detection - in whatever language the repository uses.
 disable-model-invocation: true
-argument-hint: "code-review | dead-code | secrets | quiet-check | commit-hook"
+argument-hint: "code-review | dead-code"
 allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/skills/setup/scripts/bootstrap.py *) Read Grep Glob Edit Write
 ---
 
@@ -20,9 +20,6 @@ The repository as it is:
 | --- | --- | --- |
 | `code-review` | [components/code-review/README.md](components/code-review/README.md) | An agent that reviews every merge request and writes a severity table with a fix per finding. The practice is https://selan.ai/docs/agents/code-review |
 | `dead-code` | [components/dead-code.md](components/dead-code.md) | knip, deadcode, vulture or clippy, whichever the stack needs, locally and in CI |
-| `secrets` | [components/secrets.md](components/secrets.md) | gitleaks over each merge request's own commits, blocking |
-| `quiet-check` | [components/quiet-check.md](components/quiet-check.md) | `scripts/check.sh`: every fast check, printing only failures |
-| `commit-hook` | [components/commit-hook.md](components/commit-hook.md) | A Claude Code hook that runs the fast checks before a session commits |
 
 If nothing was requested, or the name is not in the table, list the table with what the
 report above says is installed or missing, and ask which one. If it is already installed,
