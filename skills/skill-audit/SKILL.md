@@ -23,7 +23,7 @@ Two turns. This first one reads nothing beyond the report above.
    - the change, in one sentence;
    - the report line it comes from, quoted;
    - the sessions or calls it affects;
-   - the file it touches.
+   - the file it touches, copied from the path the report prints for that skill.
 3. **One question**: which numbers to apply.
 
 In the second turn, after the user picks, read what those items need, write them, and show
@@ -39,7 +39,8 @@ remove and let the user do it.
 | Called but not there | Create it, or remove whatever names it: grep `CLAUDE.md`, `.claude/`, and the other skills for the name. |
 | Built-in failed, `re-invoked itself` | The skill runs forked and was called again from inside itself. Say so; the fix is in how it is invoked, not in this repository. |
 | `around` above `used`, 5 sessions or more | The description does not match how people ask. Rewrite it with the words of the requests that should have triggered it, or add the step the sessions kept doing by hand. |
-| `used` 0 and `around` 0, project skill or agent | Unused over the period: propose removing it. |
+| `used` 0 and `around` 0, project skill or agent, `named in` a CI file or another skill | Used outside sessions: keep it, say where it runs. |
+| `used` 0 and `around` 0, project skill or agent, named nowhere | Unused over the period: propose removing it. |
 | `used` 0 and `around` 0, user or plugin skill | Say it is unused here, nothing more: it may serve every other repository. |
 | Scripts written to /tmp in 3 sessions or more | A missing skill. In the second turn, read two of those scripts from the transcripts and propose one skill with one bundled script that covers them. |
 

@@ -165,8 +165,22 @@ def usage(root, items):
     return n, invoked, errors, bypass_calls, bypass_sessions, adhoc
 
 
+def references(root, items):
+    """Where the repository names a skill or agent outside sessions: CI, docs, other skills."""
+    files = [root / ".gitlab-ci.yml", root / "CLAUDE.md", *root.glob(".github/workflows/*.y*ml"),
+             *(f for f in root.glob(".claude/**/*.md") if "worktrees" not in f.parts)]
+    texts = {f: f.read_text(errors="replace") for f in files if f.is_file()}
+    found = {}
+    for it in items:
+        # An invocation, not the word: `/name`, `agent-run name`, `subagent_type: name` or `name` in backticks.
+        rx = re.compile(r"(?:(?<![\w/.-])/|agent-run\s+|subagent_type[\"':=\s]+|`)" + re.escape(it["name"]) + r"(?![\w-])")
+        found[it["id"]] = sorted(str(f.relative_to(root)) for f, t in texts.items() if str(f) != it["path"] and rx.search(t))
+    return found
+
+
 def audit(root):
     items = installed(root)
+    refs = references(root, items)
     n, invoked, errors, bcalls, bsess, adhoc = usage(root, items)
     by_name = defaultdict(list)
     for it in items:
@@ -182,7 +196,8 @@ def audit(root):
             "sessionsUsed": invoked[it["id"]] or invoked[it["name"]],
             "sessionsWorkedAround": bsess[it["id"]], "callsWorkedAround": bcalls[it["id"]],
             "errors": dict(errors.get((it["kind"], it["name"]), {})), "signatures": it["signatures"][:4],
-            "manual": it["manual"], "path": it["path"],
+            "manual": it["manual"], "path": it["path"].replace(str(Path.home()), "~"),
+            "referencedBy": refs[it["id"]][:4],
         })
     plugin_names = defaultdict(list)
     for it in items:
@@ -228,7 +243,8 @@ def print_report(rep):
     for r in rep["items"]:
         err = f"  errors {r['errors']}" if r["errors"] else ""
         sig = f"  [{'; '.join(r['signatures'])}]" if r["sessionsWorkedAround"] else ""
-        print(f"  {r['sessionsUsed']:>4} used  {r['sessionsWorkedAround']:>4} around ({r['callsWorkedAround']} calls)  {r['scope']:<7} {r['kind']:<5} {r['id']}{err}{sig}")
+        ref = f"  named in {', '.join(r['referencedBy'])}" if not r["sessionsUsed"] and r["referencedBy"] else ""
+        print(f"  {r['sessionsUsed']:>4} used  {r['sessionsWorkedAround']:>4} around ({r['callsWorkedAround']} calls)  {r['kind']:<5} {r['id']}  {r['path']}{err}{sig}{ref}")
     print(f"\nPlugin skills installed but unused here: {rep['pluginSkillsInstalled'] - sum(1 for r in rep['items'] if r['scope'] == 'plugin')}")
     if rep["adhocScripts"]:
         print("\nScripts written to /tmp in more than one session (a skill that does not exist yet):")
