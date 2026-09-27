@@ -20,7 +20,7 @@ install, one component at a time:
 
 ```
 /selan-practices:install code-review   an agent that reviews every merge request
-/selan-practices:install dead-code     knip, deadcode, vulture or clippy, by stack
+/selan-practices:install dead-code     knip, deadcode, vulture, clippy, Periphery, detekt or PMD, by stack
 ```
 
 The code review component is the practice documented at

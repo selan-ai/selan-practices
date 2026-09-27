@@ -40,6 +40,14 @@ def stack(root):
         found.append("python")
     if (root / "Cargo.toml").is_file():
         found.append("rust")
+    if (root / "Package.swift").is_file() or list(root.glob("*.xcodeproj")) or list(root.glob("*.xcworkspace")):
+        found.append("swift")
+    gradle = [p for p in ("build.gradle.kts", "build.gradle", "settings.gradle.kts", "settings.gradle") if (root / p).is_file()]
+    if gradle or (root / "pom.xml").is_file():
+        kotlin = any(root.glob("**/src/main/kotlin")) or any(p.endswith(".kts") for p in gradle)
+        android = bool(list(root.glob("**/AndroidManifest.xml")))
+        found.append(("kotlin" if kotlin else "java") + (" (android)" if android else "")
+                     + (" (gradle)" if gradle else " (maven)"))
     return found
 
 
@@ -100,7 +108,7 @@ def components(root):
     pkg = text(root / "package.json")
     return {
         "code-review": (root / ".claude" / "agents" / "code-review.md").is_file() and bool(re.search(r"code-review|review\.md", ci_text)),
-        "dead-code": bool(re.search(r"\bknip\b|cmd/deadcode|\bvulture\b|dead_code", ci_text + pkg)),
+        "dead-code": bool(re.search(r"\bknip\b|cmd/deadcode|\bvulture\b|dead_code|\bperiphery\b|\bdetekt\b|\bpmd", ci_text + pkg)),
     }
 
 

@@ -12,8 +12,25 @@ nobody needed.
 | Go | deadcode (golang.org/x/tools) | `go run golang.org/x/tools/cmd/deadcode@latest -test ./...` | no: wrap with `test -z "$(…)"` |
 | Python | vulture | `pipx run vulture . --min-confidence 80` | yes (exit 3) |
 | Rust | the compiler | `cargo clippy -- -D dead_code -D unused` | yes |
+| Swift | Periphery | `periphery scan --strict` (first run: `periphery scan --setup` writes `.periphery.yml`) | yes, with `--strict` |
+| Kotlin | detekt, `Unused*` rules | `./gradlew detekt` | yes, when those rules are active |
+| Kotlin on Android | Android Lint `UnusedResources` | `./gradlew lint` | when set to error in `lint.xml` |
+| Java | PMD, `Unused*` rules | `./gradlew pmdMain` or `mvn pmd:check` | yes |
 
 A monorepo gets the tool for each stack it has.
+
+Kotlin and Java tools find unused private members, parameters, imports and resources, not an
+unused public class or method: nothing reliable does that on the JVM. Say so in the proposal
+rather than implying the whole codebase was checked.
+
+Swift: Periphery builds the project to index it, so it needs the scheme and targets in
+`.periphery.yml`, and it runs on macOS only. On GitLab it needs a macOS runner; on GitHub,
+`runs-on: macos-latest`. Code reached only through Objective-C or Interface Builder is a
+false positive: `retain_objc_accessible: true` in the config.
+
+Kotlin and Java: add the tool through the build (the `io.gitlab.arturbosch.detekt` plugin,
+Gradle's `pmd` plugin or `maven-pmd-plugin`), enabling only the `Unused*` rules at first, so
+the job is about dead code and not every style rule the tool knows.
 
 ## Steps
 
