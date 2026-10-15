@@ -94,7 +94,10 @@ def installed(root):
 
 def sessions(root):
     encoded = re.sub(r"[/.]", "-", str(root))
-    for d in (HOME / "projects").iterdir():
+    base = HOME / "projects"
+    if not base.is_dir():
+        return
+    for d in base.iterdir():
         if d.is_dir() and d.name.startswith(encoded):
             yield from d.rglob("*.jsonl")
 

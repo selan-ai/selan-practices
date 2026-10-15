@@ -44,6 +44,8 @@ def parse_args(argv):
 def transcript_files(root):
     projects = Path.home() / ".claude" / "projects"
     encoded = re.sub(r"[/.]", "-", str(root))
+    if not projects.is_dir():
+        return
     for d in projects.iterdir():
         if d.is_dir() and d.name.startswith(encoded):
             yield from d.rglob("*.jsonl")
