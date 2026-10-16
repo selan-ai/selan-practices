@@ -14,7 +14,8 @@ from pathlib import Path
 HOME = Path.home() / ".claude"
 # The ladder, cheapest first: a change should clear each rung before it reaches the next.
 KINDS = [
-    ("format", r"prettier|biome format|gofmt|goimports|ruff format|\bblack\b|--write"),
+    # `biome check` without --write fails on unformatted code too.
+    ("format", r"prettier|biome (format|check|ci)\b|gofmt|goimports|ruff format|\bblack\b|--write"),
     ("lint", r"biome (check|lint|ci)|eslint|go vet|golangci|ruff( check)?\b|\blint\b"),
     ("typecheck", r"\btsc\b|typecheck|mypy|pyright|go vet|go build"),
     ("build", r"\bbuild\b"),
@@ -29,6 +30,9 @@ RESERVED = {"workflow", "default", "stages", "variables", "include", "image", "s
             "before_script", "after_script", "cache", "spec"}
 CHECK = re.compile("|".join(p for k, p in KINDS if k in ("lint", "typecheck", "unit", "format")))
 COMMIT = re.compile(r"(^|[;&|]\s*)git( -C \S+)? commit\b")
+# `node tooling/check.ts`: a script that runs a wrapper file, whose string literals name what it spawns.
+WRAPPER = re.compile(r"^(?:node|tsx|bun|deno run)(?: --?[\w=-]+)* (\S+\.[cm]?[jt]s)\b")
+LITERAL = re.compile(r"""'([^'\n]{1,60})'|"([^"\n]{1,60})"|`([^`\n]{1,60})`""")
 FAILED = re.compile(r"(?:pipeline FAILED|Pipeline failed)[^\n]*?(?:jobs:|:)\s*([\w ,:.-]+)", re.I)
 
 
@@ -55,10 +59,20 @@ def package_scripts(root):
         return {}
 
 
-def expand(text, scripts):
+def wrapped(root, script):
+    """What `node tooling/check.ts` spawns: `tsc`, `biome check`, `--test`, from its short strings, not its comments or messages."""
+    m = WRAPPER.match(script)
+    try:
+        text = (root / m.group(1)).read_text(errors="replace")[:100_000] if m else ""
+    except OSError:
+        return ""
+    return " ".join("".join(s) for s in LITERAL.findall(re.sub(r"(?m)^\s*//.*$", "", text)))
+
+
+def expand(text, scripts, root):
     """`pnpm run build` means whatever package.json says build is: `tsc && tsup` is a typecheck too."""
     return re.sub(r"\b(?:npm|pnpm|yarn)(?: -s)?(?: run)? ([\w:-]+)",
-                  lambda m: f"{m.group(0)} {scripts.get(m.group(1), '')}", text)
+                  lambda m: f"{m.group(0)} {scripts.get(m.group(1), '')} {wrapped(root, scripts.get(m.group(1), ''))}", text)
 
 
 def ci_jobs(root):
@@ -74,7 +88,7 @@ def ci_jobs(root):
                     text = "\n".join(body)
                     # Everything but the job's plumbing, so a multi-line `- |` script block is read too.
                     script = expand("\n".join(l for l in body if not re.match(
-                        r"^\s+(rules|- if:|if:|when:|image:|tags:|stage:|needs:|cache:|artifacts:|variables:|services:|- name:|name:|entrypoint:|#)", l)), scripts)
+                        r"^\s+(rules|- if:|if:|when:|image:|tags:|stage:|needs:|cache:|artifacts:|variables:|services:|- name:|name:|entrypoint:|#)", l)), scripts, root)
                     jobs.append({
                         "ci": "gitlab", "name": name,
                         "blocking": not re.search(r"allow_failure:\s*true", text),
@@ -134,7 +148,7 @@ def commands(root):
     if pkg.is_file():
         try:
             for k, v in (json.loads(pkg.read_text()).get("scripts") or {}).items():
-                kinds = sorted(set(kinds_of(k) + kinds_of(v)))
+                kinds = sorted(set(kinds_of(k) + kinds_of(v) + kinds_of(wrapped(root, v))))
                 if kinds:
                     found[f"npm run {k}"] = kinds
         except ValueError:
