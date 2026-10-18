@@ -18,7 +18,8 @@ KINDS = [
     ("format", r"prettier|biome (format|check|ci)\b|gofmt|goimports|ruff format|\bblack\b|--write"),
     ("lint", r"biome (check|lint|ci)|eslint|go vet|golangci|ruff( check)?\b|\blint\b"),
     ("typecheck", r"\btsc\b|typecheck|mypy|pyright|go vet|go build"),
-    ("build", r"\bbuild\b"),
+    # `pnpm exec tsup` in a CI script is the build even where the `build` script is not called.
+    ("build", r"\bbuild\b|\btsup\b|\btsdown\b|\besbuild\b|\bwebpack\b|\brollup -c\b"),
     ("unit", r"\bjest\b|vitest|go test|pytest|\btest(:quiet|:coverage)?\b|check\.sh|test\.sh"),
     ("integration", r"integration"),
     ("e2e", r"playwright|\be2e\b"),
@@ -60,13 +61,15 @@ def package_scripts(root):
 
 
 def wrapped(root, script):
-    """What `node tooling/check.ts` spawns: `tsc`, `biome check`, `--test`, from its short strings, not its comments or messages."""
+    """What `node tooling/check.ts` spawns: `tsc`, `biome check`, `--test`, from its short strings, not its comments, messages or imports."""
     m = WRAPPER.match(script)
     try:
         text = (root / m.group(1)).read_text(errors="replace")[:100_000] if m else ""
     except OSError:
         return ""
-    return " ".join("".join(s) for s in LITERAL.findall(re.sub(r"(?m)^\s*//.*$", "", text)))
+    # `import { build } from 'esbuild'` names a module, not a command it runs.
+    text = re.sub(r"(?m)^\s*//.*$|\bfrom\s+(['\"]).*?\1|\b(?:require|import)\((['\"]).*?\2\)", "", text)
+    return " ".join("".join(s) for s in LITERAL.findall(text))
 
 
 def expand(text, scripts, root):
