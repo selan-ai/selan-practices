@@ -15,7 +15,6 @@ GENERATED = re.compile(
     r"(^|/)(dist|build|coverage|node_modules|\.next)/"
     r"|(^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$|\.min\.(js|css)$|\.snap$"
 )
-LOADED = re.compile(r"^(CLAUDE\.md|CLAUDE\.local\.md|\.claude/rules/.*)$")
 LEADING_CD = re.compile(r"^(cd\s+\S+\s*(&&|;)\s*)+")
 # A command whose output is cut down after the fact: the filter is the rule the command lacks.
 PIPED_FILTER = re.compile(r"^(?P<cmd>[^|]+?)\s*(2>&1\s*)?\|\s*(?P<filter>grep|tail|head|rg)\b(?P<args>[^|]*)")
@@ -198,9 +197,16 @@ def edit_hooks(root):
     return found
 
 
+def instruction_files(root):
+    """The project's instructions as Claude Code loads them: AGENTS.md stands in for CLAUDE.md only where there is none."""
+    claude = [root / "CLAUDE.md", root / ".claude" / "CLAUDE.md"]
+    agents = [root / "AGENTS.md", root / ".claude" / "AGENTS.md"]
+    return [f for f in (claude if any(f.is_file() for f in claude) else agents) if f.is_file()]
+
+
 def standing_context(root):
     """Files Claude Code loads into every request: they cost their size times the request count."""
-    files = [root / "CLAUDE.md", root / ".claude" / "CLAUDE.md", root / "CLAUDE.local.md", root / "AGENTS.md"]
+    files = instruction_files(root) + [root / "CLAUDE.local.md"]
     rules = root / ".claude" / "rules"
     if rules.is_dir():
         files += [f for f in rules.rglob("*.md") if not f.read_text(errors="replace").lstrip().startswith("---\npaths:")]
@@ -213,11 +219,9 @@ def standing_context(root):
 
 
 def stale_paths(root):
-    """Paths CLAUDE.md names in backticks that no longer exist: each one sends the agent looking."""
-    f = root / "CLAUDE.md"
-    if not f.is_file():
-        return []
-    named = set(re.findall(r"`((?:\.{0,2}/)?[\w.-]+/[\w./-]*[\w-])`", f.read_text(errors="replace")))
+    """Paths the instructions name in backticks that no longer exist: each one sends the agent looking."""
+    text = "".join(f.read_text(errors="replace") for f in instruction_files(root))
+    named = set(re.findall(r"`((?:\.{0,2}/)?[\w.-]+/[\w./-]*[\w-])`", text))
     # Only paths into this repository: a first segment that exists here, so URLs and imports drop out.
     top = {e.name for e in root.iterdir()}
     inside = (p.lstrip("./") for p in named if "*" not in p)
@@ -274,6 +278,7 @@ def digest(root, files, cap):
         for repo, n in s["elsewhere"].items():
             elsewhere[repo] = elsewhere.get(repo, 0) + n
     standing = standing_context(files)
+    loaded = {f["file"] for f in standing}
     filters = {}
     for b in bash:
         if b["piped"]:
@@ -286,6 +291,7 @@ def digest(root, files, cap):
         "elsewhere": dict(sorted(elsewhere.items(), key=lambda x: -x[1])[:8]),
         "habits": habits,
         "imagesRead": sum(s["images"] for s in sessions),
+        "instructions": [str(f.relative_to(files)) for f in instruction_files(files)],
         "stalePaths": stale_paths(files),
         "editHooks": edit_hooks(files),
         "standing": {"files": standing, "tokens": sum(f["tokens"] for f in standing),
@@ -302,7 +308,8 @@ def digest(root, files, cap):
                 "trimmed": sum(r["tokens"] - cap for r in over),
                 "carriedTrimmed": sum(r["carried"] * (r["tokens"] - cap) / r["tokens"] for r in over),
             },
-            "loaded": [{"file": r["file"], "tokens": r["tokens"]} for r in reads if LOADED.match(r["file"])],
+            "loaded": [{"file": r["file"], "tokens": r["tokens"]} for r in reads
+                       if r["file"] in loaded or r["file"].startswith(".claude/rules/")],
             "generated": [{"file": r["file"], "tokens": r["tokens"]} for r in reads if GENERATED.search(r["file"])],
             "rereads": {"count": rereads, "tokens": reread_tokens},
             "paged": paged,
@@ -336,8 +343,10 @@ def print_report(rep):
         print(f"  {n:>6}  {h}")
     print(f"Images read: {rep['imagesRead']}")
     print(f"Edit/Write hooks in .claude/settings: {', '.join(rep['editHooks']) or 'none'}")
+    names = " and ".join(rep["instructions"])
+    print(f"Instructions file: {names or 'none (a new one is AGENTS.md)'}")
     if rep["stalePaths"]:
-        print(f"Paths in CLAUDE.md that do not exist: {', '.join(rep['stalePaths'][:12])}")
+        print(f"Paths in {names} that do not exist: {', '.join(rep['stalePaths'][:12])}")
     print()
     S = rep["standing"]
     print(f"Loaded into every request: {k(S['tokens'])} tokens x {k(rep['requests'])} requests = {k(S['carried'])}")

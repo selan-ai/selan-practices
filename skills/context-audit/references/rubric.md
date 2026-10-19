@@ -2,8 +2,8 @@
 
 ## Contents
 - Where each kind of rule lives
-- Keep in CLAUDE.md
-- Move out of CLAUDE.md
+- Keep in AGENTS.md
+- Move out of AGENTS.md
 - Delete
 - Settings: caps, deny, hooks
 - Sources
@@ -12,17 +12,21 @@
 
 | Content | Home | Loaded |
 | --- | --- | --- |
-| Commands, conventions, traps every session needs | `CLAUDE.md` | every request |
+| Commands, conventions, traps every session needs | `AGENTS.md` | every request |
 | A rule for one directory or file type | `.claude/rules/<topic>.md` with `paths:` | when a matching file is read |
 | A multi-step procedure (deploy, migrate, release) | a skill | when invoked or relevant |
 | Something that must never happen | `permissions.deny` or a `PreToolUse` hook | enforced, costs nothing |
 | Formatting and style | the linter or formatter config | never |
 | Personal preferences | `CLAUDE.local.md`, `~/.claude/CLAUDE.md` | that person only |
 
-A line in `CLAUDE.md` is paid for on every request of every session. Everything else is paid
-for only when used, so the default answer for a new rule is "not in `CLAUDE.md`".
+A line in `AGENTS.md` is paid for on every request of every session. Everything else is paid
+for only when used, so the default answer for a new rule is "not in `AGENTS.md`".
 
-## Keep in CLAUDE.md
+`AGENTS.md` here means the instructions file the report names. A repository that has a
+`CLAUDE.md` keeps it: Claude Code loads `CLAUDE.md` where there is one and ignores
+`AGENTS.md`. A new one is `AGENTS.md`, which Codex, Cursor and other agents read too.
+
+## Keep in AGENTS.md
 
 1. **Commands that are not the stack's default**, in a code fence, copy-pasteable: setup,
    test, lint, typecheck, deploy. The quiet form first: one that prints only failures.
@@ -34,7 +38,7 @@ for only when used, so the default answer for a new rule is "not in `CLAUDE.md`"
 
 Test for every line: could you tell from the agent's output whether it followed it?
 
-## Move out of CLAUDE.md
+## Move out of AGENTS.md
 
 - A section longer than ~15 lines that one kind of task needs: a skill.
 - A section about one directory: `.claude/rules/` with `paths:`. A path rule loads only when a

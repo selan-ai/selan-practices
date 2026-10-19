@@ -175,7 +175,7 @@ def usage(root, items):
 
 def references(root, items):
     """Where the repository names a skill or agent outside sessions: CI, docs, other skills."""
-    files = [root / ".gitlab-ci.yml", root / "CLAUDE.md", *root.glob(".github/workflows/*.y*ml"),
+    files = [root / ".gitlab-ci.yml", root / "CLAUDE.md", root / "AGENTS.md", *root.glob(".github/workflows/*.y*ml"),
              *(f for f in root.glob(".claude/**/*.md") if "worktrees" not in f.parts)]
     texts = {f: f.read_text(errors="replace") for f in files if f.is_file()}
     found = {}

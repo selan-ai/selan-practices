@@ -45,7 +45,8 @@ the job is about dead code and not every style rule the tool knows.
    - zero findings after steps 2-3: blocking, in the existing test job;
    - findings left: its own job with `allow_failure: true` (GitHub: `continue-on-error: true`)
      until they are gone, then blocking. Say which.
-5. Name the local command in `CLAUDE.md` in one line.
+5. Name the local command in one line of the instructions file (`AGENTS.md`, or `CLAUDE.md`
+   where the repository has one).
 
 ## Verify
 
