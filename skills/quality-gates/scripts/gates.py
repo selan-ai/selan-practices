@@ -15,7 +15,7 @@ HOME = Path.home() / ".claude"
 # The ladder, cheapest first: a change should clear each rung before it reaches the next.
 KINDS = [
     # `biome check` without --write fails on unformatted code too.
-    ("format", r"prettier|biome (format|check|ci)\b|gofmt|goimports|ruff format|\bblack\b|--write"),
+    ("format", r"prettier|biome (format|check|ci)\b|gofmt|gofumpt|goimports|golines|\bgci\b|golangci-lint fmt|ruff format|\bblack\b|--write"),
     ("lint", r"biome (check|lint|ci)|eslint|go vet|golangci|ruff( check)?\b|\blint\b"),
     ("typecheck", r"\btsc\b|typecheck|mypy|pyright|go vet|go build"),
     # `pnpm exec tsup` in a CI script is the build even where the `build` script is not called.
@@ -72,8 +72,23 @@ def wrapped(root, script):
     return " ".join("".join(s) for s in LITERAL.findall(text))
 
 
+def golangci_formatters(root):
+    """golangci-lint v2 `run` also fails on the formatters its config enables: `formatters: enable: [gofmt]`."""
+    for name in (".golangci.yml", ".golangci.yaml", ".golangci.toml"):
+        try:
+            text = re.sub(r"(?m)#.*$", "", (root / name).read_text(errors="replace"))
+        except OSError:
+            continue
+        m = re.search(r"(?ms)^(?:formatters:|\[formatters\])\s*$(.*?)(?=^[\w\[]|\Z)", text)
+        # Only an `enable` list turns a formatter on; `settings:` alone configures one that never runs.
+        enabled = m and re.search(r"(?ms)^\s*enable\s*[:=]\s*(\[.*?\]|(?:\s*- .*?$)+)", m.group(1))
+        return " ".join(re.findall(r"\b(?:gofmt|gofumpt|goimports|golines|gci)\b", enabled.group(1))) if enabled else ""
+    return ""
+
+
 def expand(text, scripts, root):
     """`pnpm run build` means whatever package.json says build is: `tsc && tsup` is a typecheck too."""
+    text = re.sub(r"\bgolangci-lint run\b", lambda m: f"{m.group(0)} {golangci_formatters(root)}", text)
     return re.sub(r"\b(?:npm|pnpm|yarn)(?: -s)?(?: run)? ([\w:-]+)",
                   lambda m: f"{m.group(0)} {scripts.get(m.group(1), '')} {wrapped(root, scripts.get(m.group(1), ''))}", text)
 
@@ -96,6 +111,7 @@ def ci_jobs(root):
                         "ci": "gitlab", "name": name,
                         "blocking": not re.search(r"allow_failure:\s*true", text),
                         "manual": bool(re.search(r"when:\s*manual", text)),
+                        "formatters": golangci_formatters(root) if "golangci-lint run" in script else "",
                         # A review or secrets job's prompt mentions tests and builds; its name says what it gates.
                         "kinds": [k for k in kinds_of(name) if k in ("review", "secrets")]
                                  or sorted(set(kinds_of(name) + kinds_of(script))),
@@ -294,6 +310,9 @@ def print_report(rep):
     missing = [r["kind"] for r in rep["ladder"] if not (r["local"] or r["hook"] or r["ciBlocking"] or r["ciAdvisory"])]
     if missing:
         print(f"  nowhere: {', '.join(missing)}")
+    for j in rep["ciJobs"]:
+        if j.get("formatters"):
+            print(f"  format in {j['name']}: its `golangci-lint run` also fails on {', '.join(j['formatters'].split())}, enabled under formatters: in the golangci config")
     me = rep["mergeEnforced"]
     if me is None:
         print("Merge enforcement: unknown (no gitlab/github remote, or no glab/gh login)")
