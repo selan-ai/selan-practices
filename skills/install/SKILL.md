@@ -1,8 +1,8 @@
 ---
 name: install
-description: Use when adding a quality component to a repository - code review on merge requests, or dead code detection - in whatever language the repository uses.
+description: Use when adding a quality component to a repository - code review on merge requests, dead code detection, or a file-length limit - in whatever language the repository uses.
 disable-model-invocation: true
-argument-hint: "code-review | dead-code"
+argument-hint: "code-review | dead-code | file-length"
 allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/skills/setup/scripts/bootstrap.py *) Read Grep Glob Edit Write
 ---
 
@@ -20,6 +20,7 @@ The repository as it is:
 | --- | --- | --- |
 | `code-review` | [components/code-review/README.md](components/code-review/README.md) | An agent that reviews every merge request and writes a severity table with a fix per finding. The practice is https://selan.ai/docs/agents/code-review |
 | `dead-code` | [components/dead-code.md](components/dead-code.md) | knip, deadcode, vulture or clippy, whichever the stack needs, locally and in CI |
+| `file-length` | [components/file-length.md](components/file-length.md) | A lint error on source files over 600 lines, in the linter the stack already runs, with today's longer files as a list that only shrinks |
 
 If nothing was requested, or the name is not in the table, list the table with what the
 report above says is installed or missing, and ask which one. If it is already installed,
