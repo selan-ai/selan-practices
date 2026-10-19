@@ -27,7 +27,8 @@ say so and stop.
 
 ## How
 
-1. Read the component's recipe, then the repository's `CLAUDE.md` and CI file. Follow the
+1. Read the component's recipe, then the repository's instructions file (`AGENTS.md`, or
+   `CLAUDE.md` where it has one) and CI file. Follow the
    repository's own conventions (runner tags, images, package manager) over the recipe's
    defaults.
 2. Say in three lines what you will add and where, then add it. Copy the recipe's files as

@@ -15,9 +15,9 @@ files, is https://selan.ai/docs/agents/code-review . Read it before changing a f
 
 ## Steps
 
-1. Copy `code-review.md`. Keep it short: Claude Code loads `CLAUDE.md` itself, so the house
-   style is not repeated in the brief. Add one line naming what this repository treats as
-   Critical, taken from its `CLAUDE.md`, if it has one.
+1. Copy `code-review.md`. Keep it short: Claude Code loads `AGENTS.md` (or `CLAUDE.md`)
+   itself, so the house style is not repeated in the brief. Add one line naming what this
+   repository treats as Critical, taken from its instructions file, if it has one.
 2. Add the pipeline for the repository's CI host. On GitLab, add the `workflow:` block only if
    the file has none; if one exists, check it already creates merge request pipelines.
 3. The job is advisory (`allow_failure: true` / `continue-on-error: true`) and stays that way:

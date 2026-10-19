@@ -42,7 +42,7 @@ to prove it passes on the current tree, and show the diff. Never commit.
 | lint, typecheck, build or unit with no blocking CI job | Add it to the blocking test job. |
 | A rung with only a local command | A blocking CI job; a local command alone is a suggestion. |
 | Commits with no check since the last edit, a fifth or more | A `PreToolUse` hook on `Bash(git commit*)` that runs the quiet check and blocks on failure. Name the quiet check; if there is none, propose it first. |
-| CI failures the sessions saw, on a rung that has a local command | Name that command in `CLAUDE.md` as the step before every push. |
+| CI failures the sessions saw, on a rung that has a local command | Name that command in the instructions file (`AGENTS.md`, or `CLAUDE.md` where it has one) as the step before every push. |
 | `--no-verify` above 0 | Find what it skipped and why; a hook people bypass is a hook to fix, not a rule to repeat. |
 | `secrets: nowhere` on a repository that handles credentials | A secret scan in CI. |
 | review only advisory | Leave it: a model's opinion does not block. Say so. |

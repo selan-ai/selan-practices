@@ -36,7 +36,7 @@ remove and let the user do it.
 | --- | --- |
 | Same name in more than one place | Only one runs. Rename or merge the other, keeping whichever holds the scripts the sessions needed. |
 | Also shipped by a plugin | Remove the user-level copy; the plugin's is the maintained one. |
-| Called but not there | Create it, or remove whatever names it: grep `CLAUDE.md`, `.claude/`, and the other skills for the name. |
+| Called but not there | Create it, or remove whatever names it: grep `AGENTS.md`, `CLAUDE.md`, `.claude/`, and the other skills for the name. |
 | Built-in failed, `re-invoked itself` | The skill runs forked and was called again from inside itself. Say so; the fix is in how it is invoked, not in this repository. |
 | `around` above `used`, 5 sessions or more | The description does not match how people ask. Rewrite it with the words of the requests that should have triggered it, or add the step the sessions kept doing by hand. |
 | `used` 0 and `around` 0, project skill or agent, `named in` a CI file or another skill | Used outside sessions: keep it, say where it runs. |

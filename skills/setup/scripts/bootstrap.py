@@ -74,8 +74,15 @@ def commands(root):
     return out
 
 
+def instruction_files(root):
+    """The project's instructions as Claude Code loads them: AGENTS.md stands in for CLAUDE.md only where there is none."""
+    claude = [root / "CLAUDE.md", root / ".claude" / "CLAUDE.md"]
+    agents = [root / "AGENTS.md", root / ".claude" / "AGENTS.md"]
+    return [f for f in (claude if any(f.is_file() for f in claude) else agents) if f.is_file()]
+
+
 def claude_setup(root):
-    md = root / "CLAUDE.md"
+    loaded = instruction_files(root)
     settings = root / ".claude" / "settings.json"
     hooks = []
     try:
@@ -83,8 +90,9 @@ def claude_setup(root):
     except (OSError, ValueError, AttributeError):
         pass
     return {
-        "claudeMd": md.read_text(errors="replace").count("\n") if md.is_file() else None,
-        "agentsMd": (root / "AGENTS.md").is_file(),
+        "instructions": [{"file": str(f.relative_to(root)), "lines": f.read_text(errors="replace").count("\n")} for f in loaded],
+        # Both at the root: Claude Code reads CLAUDE.md and leaves AGENTS.md to other agents.
+        "agentsMdIgnored": (root / "AGENTS.md").is_file() and (root / "AGENTS.md") not in loaded,
         "rules": len(list((root / ".claude" / "rules").glob("**/*.md"))),
         "skills": sorted(p.parent.name for p in (root / ".claude" / "skills").glob("*/SKILL.md")),
         "agents": sorted(p.stem for p in (root / ".claude" / "agents").glob("*.md")),
@@ -141,8 +149,9 @@ def main(files):
     print(f"Stack: {', '.join(stack(files)) or 'not recognised'}")
     print(f"Sessions on this machine: {n}{'  (the audits need a few weeks of sessions; setup uses the files alone)' if n < 5 else ''}")
     print(f"CI: {ci(files) or 'none'}")
-    print(f"CLAUDE.md: {str(c['claudeMd']) + ' lines' if c['claudeMd'] is not None else 'none'}"
-          f"{'; AGENTS.md present' if c['agentsMd'] else ''}")
+    loaded = ", ".join(f"{i['file']} {i['lines']} lines" for i in c["instructions"])
+    print(f"Instructions file: {loaded or 'none (a new one is AGENTS.md)'}"
+          f"{'; AGENTS.md is there too, and Claude Code does not load it' if c['agentsMdIgnored'] else ''}")
     print(f".claude/: {c['rules']} rules, skills {c['skills'] or 'none'}, agents {c['agents'] or 'none'}, hooks {c['hooks'] or 'none'}")
     print("Checks a session can run:")
     for cmd in commands(files) or ["none found"]:

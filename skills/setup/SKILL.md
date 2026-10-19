@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Use when a developer wants their repository set up well for Claude Code and does not know where to start, or on a new repository with no CLAUDE.md, no checks and no history of sessions.
+description: Use when a developer wants their repository set up well for Claude Code and does not know where to start, or on a new repository with no AGENTS.md or CLAUDE.md, no checks and no history of sessions.
 disable-model-invocation: true
 allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/skills/*) Read Grep Glob Edit Write
 ---
@@ -22,6 +22,10 @@ What its sessions spent, if there are any:
 If the first block says `python3: command not found`, stop and tell the user to install
 Python 3 (macOS: `xcode-select --install`; Windows: python.org, then reopen the terminal).
 
+`AGENTS.md` here means the instructions file the report names. A repository that has a
+`CLAUDE.md` keeps it: Claude Code loads `CLAUDE.md` where there is one and ignores
+`AGENTS.md`. A new one is `AGENTS.md`, which Codex, Cursor and other agents read too.
+
 ## The reader
 
 Assume the developer has never configured Claude Code. Every item says, in one plain
@@ -30,12 +34,12 @@ https://selan.ai/docs/practices#glossary is where to send them for more.
 
 ## What you produce
 
-Two turns. This one reads nothing beyond the reports above and the repository's `CLAUDE.md`.
+Two turns. This one reads nothing beyond the reports above and the repository's `AGENTS.md`.
 
 1. **Your repository today**, five lines at most: stack, the checks it has, whether a red
-   pipeline blocks a merge, `CLAUDE.md`, how many sessions there are to learn from.
+   pipeline blocks a merge, `AGENTS.md`, how many sessions there are to learn from.
 2. **The plan**, five items at most, in this order, skipping what is already in place:
-   1. `CLAUDE.md`: none yet, write one under 60 lines from the files (commands that differ
+   1. `AGENTS.md`: none yet, write one under 60 lines from the files (commands that differ
       from the stack's defaults, nothing a reader of the code can see). Over 200 lines, cut
       it (details: `/selan-practices:context-audit`).
    2. Merge enforcement, when the report says OFF: the project setting to turn on.
@@ -47,7 +51,7 @@ Two turns. This one reads nothing beyond the reports above and the repository's 
 3. **One question**: which numbers to apply, or "all".
 
 In the second turn, apply the picked items: for a component, follow its recipe under
-`${CLAUDE_PLUGIN_ROOT}/skills/install/components/`; for `CLAUDE.md`, the rubric in
+`${CLAUDE_PLUGIN_ROOT}/skills/install/components/`; for `AGENTS.md`, the rubric in
 `${CLAUDE_PLUGIN_ROOT}/skills/context-audit/references/rubric.md`. Run each item's
 verification, show the diff, never commit, and end with the commands that ship it.
 
