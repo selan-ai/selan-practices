@@ -11,6 +11,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from friction import friction, print_friction
+
 HOME = Path.home() / ".claude"
 # The ladder, cheapest first: a change should clear each rung before it reaches the next.
 KINDS = [
@@ -207,6 +209,14 @@ def elsewhere_cd(cmd, root):
     return False
 
 
+def foreign(cmd, cwd, root):
+    """Work in a sibling repository, named in the command or already cd'd into, is that repository's."""
+    prefix, parent = str(root) + os.sep, str(root.parent) + os.sep
+    return bool(re.search(re.escape(parent) + r"(?!" + re.escape(root.name) + r"[/\s'\"])", cmd)) \
+        or bool(cwd and not (cwd == str(root) or cwd.startswith(prefix))) \
+        or elsewhere_cd(cmd, root)
+
+
 def compliance(root):
     """Commits made with no check since the last edit, --no-verify, CI failures seen, hooks that fired."""
     prefix, parent = str(root) + os.sep, str(root.parent) + os.sep
@@ -229,10 +239,7 @@ def compliance(root):
                     i += 1
                     inp = b.get("input") or {}
                     cmd = str(inp.get("command") or "")
-                    # Work in a sibling repository, named in the command or already cd'd into, is that repository's.
-                    if re.search(re.escape(parent) + r"(?!" + re.escape(root.name) + r"[/\s'\"])", cmd) \
-                            or (cwd and not (cwd == str(root) or cwd.startswith(prefix))) \
-                            or elsewhere_cd(cmd, root):
+                    if foreign(cmd, cwd, root):
                         continue
                     if b.get("name") in ("Edit", "Write", "MultiEdit") or re.search(r"python3?\s+-\s*<<.*\.(replace|write)\(", cmd, re.S):
                         last_edit = i
@@ -297,7 +304,8 @@ def audit(root, files):
             "ciAdvisory": [j["name"] for j in jobs if kind in j["kinds"] and not j["blocking"]],
         })
     return {"root": str(root), "ladder": ladder, "ciJobs": jobs, "hooks": hooks,
-            "mergeEnforced": merge_enforced(files), **compliance(root)}
+            "mergeEnforced": merge_enforced(files), **compliance(root),
+            **friction(root, files, lambda cmd, cwd: foreign(cmd, cwd, root), hooks)}
 
 
 def print_report(rep):
@@ -328,6 +336,7 @@ def print_report(rep):
         print("Hooks that stopped a tool call:")
         for t, v in rep["hookBlocks"].items():
             print(f"  {v:>4}x  {t}")
+    print_friction(rep)
 
 
 if __name__ == "__main__":

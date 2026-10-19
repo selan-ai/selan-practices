@@ -88,10 +88,36 @@ def content_chars(content):
 
 HABITS = {
     "cd before the command": re.compile(r"^\s*cd\s"),
-    "PATH exported inline": re.compile(r"export\s+PATH="),
     "sleep": re.compile(r"(^|[;&|]\s*)sleep\s"),
     "edit through a script (bypasses Edit hooks)": re.compile(r"python3?\s+-\s*<<.*\.(replace|write)\(", re.S),
 }
+
+
+# Setup put in front of a command: `export X=…`, `unset X`, `source venv/bin/activate`, `nvm use 26`.
+SETUP_STEP = re.compile(r"""^\s*(export\s+[A-Z_][A-Z0-9_]*=\S+|unset\s+[A-Z_][A-Z0-9_ ]*|source\s+\S+|\.\s+\S+|nvm\s+use\s+\S+|eval\s+"\$\([^)]*\)")\s*(?:;|&&)\s*""")
+# The one command Claude Code refuses outright, telling the agent to wait with Monitor instead.
+BLOCKED = re.compile(r"^<tool_use_error>Blocked: (sleep)\b")
+HOME_DIR = str(Path.home())
+
+
+def shell_setup(cmd):
+    """The setup steps in front of a command, the home directory written one way however it was spelled."""
+    rest, steps = LEADING_CD.sub("", cmd.strip()), []
+    m = SETUP_STEP.match(rest)
+    while m:
+        step = re.sub(r"[\"']", "", m.group(1).strip()).replace(HOME_DIR, "$HOME")
+        steps.append(re.sub(r"(^|[=:\s])~/", r"\1$HOME/", step))
+        rest = LEADING_CD.sub("", rest[m.end():])
+        m = SETUP_STEP.match(rest)
+    return steps
+
+
+def result_text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(c.get("text") or "" for c in content if isinstance(c, dict))
+    return ""
 
 
 def session(root, path):
@@ -100,6 +126,7 @@ def session(root, path):
     habits = dict.fromkeys(HABITS, 0)
     elsewhere = {}
     images = 0
+    setup, blocked, worktree_refused = {}, {}, 0
     parent = str(root.parent) + os.sep
     in_repo = False
     prefix = str(root) + os.sep
@@ -142,6 +169,8 @@ def session(root, path):
                     if c.get("name") == "Bash":
                         for name, rx in HABITS.items():
                             habits[name] += bool(rx.search(str(inp.get("command") or "")))
+                        for step in shell_setup(str(inp.get("command") or "")):
+                            setup[step] = setup.get(step, 0) + 1
                     if c.get("name") in ("Edit", "Write", "MultiEdit"):
                         edits.append({"file": repo_path(root, (c.get("input") or {}).get("file_path")), "at": len(requests)})
             if r.get("type") == "user" and isinstance(msg.get("content"), list):
@@ -151,6 +180,13 @@ def session(root, path):
                     use = pending.get(c.get("tool_use_id")) or {}
                     inp = use.get("input") or {}
                     tokens = round(content_chars(c.get("content")) / TOKEN_CHARS)
+                    if use and not use.get("foreign"):
+                        text = result_text(c.get("content"))
+                        # Claude Code's own refusals: an agent leaving its worktree, a command it never runs.
+                        worktree_refused += "is isolated in the worktree" in text[:400]
+                        m = BLOCKED.match(text)
+                        if m:
+                            blocked[m.group(1)] = blocked.get(m.group(1), 0) + 1
                     result = r.get("toolUseResult")
                     f_ = result.get("file") if isinstance(result, dict) else None
                     if use.get("name") == "Read" and isinstance(f_, dict) and f_.get("numLines") is not None:
@@ -178,7 +214,8 @@ def session(root, path):
     for x in reads + bash:
         x["carried"] = x["tokens"] * max(0, len(requests) - x["at"])
     return {"requests": len(requests), "reads": reads, "bash": bash, "edits": edits,
-            "usage": usage, "habits": habits, "elsewhere": elsewhere, "images": images}
+            "usage": usage, "habits": habits, "elsewhere": elsewhere, "images": images,
+            "setup": setup, "blocked": blocked, "worktreeRefused": worktree_refused}
 
 
 def edit_hooks(root):
@@ -202,6 +239,18 @@ def instruction_files(root):
     claude = [root / "CLAUDE.md", root / ".claude" / "CLAUDE.md"]
     agents = [root / "AGENTS.md", root / ".claude" / "AGENTS.md"]
     return [f for f in (claude if any(f.is_file() for f in claude) else agents) if f.is_file()]
+
+
+def session_start_hooks(root):
+    """The text of every SessionStart hook, normalised like shell_setup, to tell a step already set up."""
+    text = ""
+    for f in (Path.home() / ".claude" / "settings.json", root / ".claude" / "settings.json",
+              root / ".claude" / "settings.local.json"):
+        try:
+            text += json.dumps((json.loads(f.read_text()).get("hooks") or {}).get("SessionStart") or [])
+        except (OSError, ValueError, AttributeError):
+            continue
+    return re.sub(r"\\?[\"']", "", text.replace(HOME_DIR, "$HOME")).replace("~/", "$HOME/")
 
 
 def standing_context(root):
@@ -273,6 +322,13 @@ def digest(root, files, cap):
     requests = sum(s["requests"] for s in sessions)
     usage = {u: sum(s["usage"][u] for s in sessions) for u in ("input", "cacheWrite", "cacheRead", "output")}
     habits = {h: sum(s["habits"][h] for s in sessions) for h in HABITS}
+    setup, blocked = {}, {}
+    for s in sessions:
+        for step, n in s["setup"].items():
+            setup[step] = setup.get(step, 0) + n
+        for cmd, n in s["blocked"].items():
+            blocked[cmd] = blocked.get(cmd, 0) + n
+    hooked = session_start_hooks(files)
     elsewhere = {}
     for s in sessions:
         for repo, n in s["elsewhere"].items():
@@ -291,6 +347,10 @@ def digest(root, files, cap):
         "elsewhere": dict(sorted(elsewhere.items(), key=lambda x: -x[1])[:8]),
         "habits": habits,
         "imagesRead": sum(s["images"] for s in sessions),
+        "shellSetup": [{"step": k, "commands": n, "inHook": k in hooked}
+                       for k, n in sorted(setup.items(), key=lambda x: -x[1])[:5]],
+        "blocked": dict(sorted(blocked.items(), key=lambda x: -x[1])),
+        "worktreeRefused": sum(s["worktreeRefused"] for s in sessions),
         "instructions": [str(f.relative_to(files)) for f in instruction_files(files)],
         "stalePaths": stale_paths(files),
         "editHooks": edit_hooks(files),
@@ -341,6 +401,14 @@ def print_report(rep):
     print("Habits in Bash commands:")
     for h, n in rep["habits"].items():
         print(f"  {n:>6}  {h}")
+    if rep["shellSetup"]:
+        print("Shell setup put in front of commands:")
+        for x in rep["shellSetup"]:
+            print(f"  {x['commands']:>6}  {x['step']}{'  (already in a SessionStart hook)' if x['inHook'] else ''}")
+    if rep["blocked"]:
+        print(f"Commands Claude Code blocked: {', '.join(f'{k} {v}' for k, v in rep['blocked'].items())}")
+    if rep["worktreeRefused"]:
+        print(f"Commands refused for leaving the agent's worktree: {rep['worktreeRefused']}")
     print(f"Images read: {rep['imagesRead']}")
     print(f"Edit/Write hooks in .claude/settings: {', '.join(rep['editHooks']) or 'none'}")
     names = " and ".join(rep["instructions"])

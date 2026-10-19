@@ -21,6 +21,7 @@ install, one component at a time:
 ```
 /selan-practices:install code-review   an agent that reviews every merge request
 /selan-practices:install dead-code     knip, deadcode, vulture, clippy, Periphery, detekt or PMD, by stack
+/selan-practices:install file-length   a lint error on files over 600 lines, in the linter the stack runs
 ```
 
 The code review component is the practice documented at
@@ -44,6 +45,12 @@ the merge. From the transcripts it counts commits made with no check since the l
 the CI failures sessions ran into, then proposes the gaps worth closing: a rung that runs only
 on the default branch, a rung with only a local command, a missing secret scan.
 
+It also counts what sessions learned only from a failure: lint rules broken again and again,
+type errors a language server would have shown right after the edit, format checks failing
+after edits, and source files over 600 lines. Each one has a one-time fix: the rules written
+into `AGENTS.md`, the language's LSP plugin, a hook that formats each edited file, a
+file-length rule.
+
 ## Skill audit
 
 Lists the skills and agents a session has (project, user, plugin), then checks the
@@ -57,7 +64,9 @@ which usually means a skill is missing.
 `AGENTS.md` is sent with every request, so its size times your request count is often the
 largest single cost. The audit also counts work done in another repository from this one,
 command output filtered after the fact (`tsc | grep -v node_modules`), large and generated
-files read, and paths `AGENTS.md` names that no longer exist.
+files read, paths `AGENTS.md` names that no longer exist, shell setup put in front of command
+after command (`export PATH=…/node/v26/bin:$PATH`, `unset GIT_DIR`), agents refused for leaving
+their worktree, and `sleep` calls Claude Code blocked.
 
 It proposes; it does not write. Pick the items you want and it writes those, and never commits.
 
