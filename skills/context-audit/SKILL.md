@@ -48,7 +48,9 @@ and its filter; searching, reading and editing already have tools.
 | Paths in AGENTS.md that do not exist | Fix or delete each line. |
 | Images read, over 50 | Measure in code, read a clipped screenshot only to show someone. |
 | Edit through a script, over 50, and Edit/Write hooks listed | Edit with Edit/Write, which those hooks see. With no hooks listed, nothing is skipped: no proposal. |
-| PATH exported inline, over 50 | A `SessionStart` hook that writes PATH to `$CLAUDE_ENV_FILE`, for the runtime this repository itself uses. |
+| Shell setup put in front of commands, one step 10 times or more | A `SessionStart` hook that appends that step to `$CLAUDE_ENV_FILE`, so every command starts with it: `{"type": "command", "command": "echo '<step>' >> \"$CLAUDE_ENV_FILE\""}`. In `.claude/settings.local.json` when the step names a path on this machine (`$HOME/.nvm/…`, a virtualenv), else `.claude/settings.json`. Several Node versions are one item: the one `package.json` `engines` asks for. Nothing for a step marked as already in a hook. |
+| Commands refused for leaving the agent's worktree, 5 or more | One line in `AGENTS.md`: in a worktree, run every command from inside it, never `cd` to the main checkout. |
+| Commands Claude Code blocked: sleep, 10 or more | One line in `~/.claude/CLAUDE.md`, the user's own file, since the habit follows them into every repository: to wait for something, use Monitor with an until-loop, never `sleep`. |
 | Over a cap, 20 reads or more | `env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` in `.claude/settings.json`. Under 20, say the cap would change nothing here. |
 | Already-loaded files read | Say so; one line in `AGENTS.md` is enough. |
 | Generated files read | `permissions.deny` `Read(./path/**)` for those paths. |

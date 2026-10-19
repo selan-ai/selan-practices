@@ -7,6 +7,8 @@ A Claude Code plugin. What it does is in `README.md`; this file is what the code
 ```sh
 python3 skills/context-audit/scripts/digest.py <repo>     # the context report, as the skill sees it
 python3 skills/skill-audit/scripts/skills.py <repo>       # the skill report
+python3 skills/quality-gates/scripts/gates.py <repo>      # the ladder, and what sessions learned only from a failure
+python3 -m unittest discover tests                       # the detectors, on made-up transcripts (no repository needed)
 claude plugin validate .claude-plugin/plugin.json          # manifests and every SKILL.md
 cd <repo> && claude -p "/selan-practices:<skill>" --plugin-dir <this checkout> --model sonnet --output-format json
 ```
