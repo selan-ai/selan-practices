@@ -21,7 +21,8 @@ KINDS = [
     ("lint", r"biome (check|lint|ci)|eslint|go vet|golangci|ruff( check)?\b|\blint\b"),
     ("typecheck", r"\btsc\b|typecheck|mypy|pyright|go vet|go build"),
     # `pnpm exec tsup` in a CI script is the build even where the `build` script is not called.
-    ("build", r"\bbuild\b|\btsup\b|\btsdown\b|\besbuild\b|\bwebpack\b|\brollup -c\b"),
+    # `go vet ./...` and `go test ./...` compile every package of the module, cmd/ included.
+    ("build", r"\bbuild\b|\btsup\b|\btsdown\b|\besbuild\b|\bwebpack\b|\brollup -c\b|\bgo (?:vet|test)\b[^\n]*\./\.\.\."),
     ("unit", r"\bjest\b|vitest|go test|pytest|\btest(:quiet|:coverage)?\b|check\.sh|test\.sh"),
     ("integration", r"integration"),
     ("e2e", r"playwright|\be2e\b"),
@@ -36,6 +37,7 @@ COMMIT = re.compile(r"(^|[;&|]\s*)git( -C \S+)? commit\b")
 # `node tooling/check.ts`: a script that runs a wrapper file, whose string literals name what it spawns.
 WRAPPER = re.compile(r"^(?:node|tsx|bun|deno run)(?: --?[\w=-]+)* (\S+\.[cm]?[jt]s)\b")
 LITERAL = re.compile(r"""'([^'\n]{1,60})'|"([^"\n]{1,60})"|`([^`\n]{1,60})`""")
+GO_COMPILES = re.compile(r"\bgo (?:vet|test)\b[^\n]*?\./\.\.\.")
 FAILED = re.compile(r"(?:pipeline FAILED|Pipeline failed)[^\n]*?(?:jobs:|:)\s*([\w ,:.-]+)", re.I)
 
 
@@ -88,6 +90,12 @@ def golangci_formatters(root):
     return ""
 
 
+def go_compiles(script):
+    """`go vet ./...` where no `go build` runs: the job compiles every package, so build is not missing."""
+    m = GO_COMPILES.search(script)
+    return m.group(0) if m and not re.search(r"\bgo build\b", script) else ""
+
+
 def expand(text, scripts, root):
     """`pnpm run build` means whatever package.json says build is: `tsc && tsup` is a typecheck too."""
     text = re.sub(r"\bgolangci-lint run\b", lambda m: f"{m.group(0)} {golangci_formatters(root)}", text)
@@ -114,6 +122,7 @@ def ci_jobs(root):
                         "blocking": not re.search(r"allow_failure:\s*true", text),
                         "manual": bool(re.search(r"when:\s*manual", text)),
                         "formatters": golangci_formatters(root) if "golangci-lint run" in script else "",
+                        "compiles": go_compiles(script),
                         # A review or secrets job's prompt mentions tests and builds; its name says what it gates.
                         "kinds": [k for k in kinds_of(name) if k in ("review", "secrets")]
                                  or sorted(set(kinds_of(name) + kinds_of(script))),
@@ -125,7 +134,8 @@ def ci_jobs(root):
         text = wf.read_text(errors="replace")
         for job, body in re.findall(r"^  ([\w-]+):\n((?:    .*\n|\n)*)", text, re.M):
             jobs.append({"ci": "github", "name": job, "blocking": "continue-on-error: true" not in body,
-                         "manual": False, "kinds": sorted(set(kinds_of(job) + kinds_of(body)))})
+                         "manual": False, "compiles": go_compiles(body),
+                         "kinds": sorted(set(kinds_of(job) + kinds_of(body)))})
     return [j for j in jobs if not j["manual"]]
 
 
@@ -321,6 +331,8 @@ def print_report(rep):
     for j in rep["ciJobs"]:
         if j.get("formatters"):
             print(f"  format in {j['name']}: its `golangci-lint run` also fails on {', '.join(j['formatters'].split())}, enabled under formatters: in the golangci config")
+        if j.get("compiles") and j["blocking"]:
+            print(f"  build in {j['name']}: its `{j['compiles']}` fails on a compile error in any package, cmd/ included, so a `go build` job would add only linking")
     me = rep["mergeEnforced"]
     if me is None:
         print("Merge enforcement: unknown (no gitlab/github remote, or no glab/gh login)")

@@ -12,6 +12,7 @@ sys.path[:0] = [str(SKILLS / "quality-gates" / "scripts"), str(SKILLS / "context
 
 import digest  # noqa: E402
 import friction  # noqa: E402
+import gates  # noqa: E402
 
 
 def bash(id_, command, cwd):
@@ -84,6 +85,19 @@ class LongFiles(Sandbox):
         (self.root / ".swiftlint.yml").write_text("file_length:\n  error: 600\n")
         self.assertEqual(friction.length_rules(self.root),
                          ["biome.json (noExcessiveLinesPerFile)", ".swiftlint.yml (file_length)"])
+
+
+class GoBuild(Sandbox):
+    def test_go_vet_over_the_module_is_the_build_rung_and_says_so(self):
+        (self.root / ".gitlab-ci.yml").write_text(
+            "test:\n  script:\n    - go vet ./...\n    - go test ./... -race\n"
+            "lint:\n  script:\n    - go vet ./internal/...\n"
+            "build:\n  script:\n    - go vet ./...\n    - go build ./...\n")
+        jobs = {j["name"]: j for j in gates.ci_jobs(self.root)}
+        self.assertIn("build", jobs["test"]["kinds"])
+        self.assertEqual(jobs["test"]["compiles"], "go vet ./...")
+        self.assertNotIn("build", jobs["lint"]["kinds"])
+        self.assertEqual(jobs["build"]["compiles"], "")
 
 
 class ShellSetup(unittest.TestCase):
