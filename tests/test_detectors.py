@@ -86,6 +86,16 @@ class LongFiles(Sandbox):
         self.assertEqual(friction.length_rules(self.root),
                          ["biome.json (noExcessiveLinesPerFile)", ".swiftlint.yml (file_length)"])
 
+    def test_a_blocking_ci_step_that_checks_file_length_is_the_rule(self):
+        (self.root / ".gitlab-ci.yml").write_text(
+            "test:\n  script:\n    # check-file-size.sh comes later\n    - go test ./...\n"
+            "go:\n  script:\n    - go run ./tools/filecheck .\n"
+            "size:\n  allow_failure: true\n  script:\n    - ./scripts/check-file-size.sh\n")
+        jobs = gates.ci_jobs(self.root)
+        self.assertEqual(friction.friction(self.root, self.root, lambda *_: False, [], jobs)["lengthRules"],
+                         ["./tools/filecheck in blocking CI job go"])
+        self.assertEqual([j["name"] for j in jobs if "budget" in j["kinds"]], ["go", "size"])
+
 
 class GoBuild(Sandbox):
     def test_go_vet_over_the_module_is_the_build_rung_and_says_so(self):

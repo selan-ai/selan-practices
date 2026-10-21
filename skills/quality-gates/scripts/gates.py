@@ -11,7 +11,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from friction import friction, print_friction
+from friction import LENGTH_SCRIPT, friction, print_friction
 
 HOME = Path.home() / ".claude"
 # The ladder, cheapest first: a change should clear each rung before it reaches the next.
@@ -26,7 +26,7 @@ KINDS = [
     ("unit", r"\bjest\b|vitest|go test|pytest|\btest(:quiet|:coverage)?\b|check\.sh|test\.sh"),
     ("integration", r"integration"),
     ("e2e", r"playwright|\be2e\b"),
-    ("budget", r"comment-budget|file-size|size-limit|complexity"),
+    ("budget", r"comment-budget|file-size|file-length|filecheck|size-limit|complexity"),
     ("secrets", r"gitleaks|trufflehog|detect-secrets|secret-scan|scan-secrets"),
     ("review", r"agent-run code-review|claude -p .*review|^review$"),
 ]
@@ -96,6 +96,12 @@ def go_compiles(script):
     return m.group(0) if m and not re.search(r"\bgo build\b", script) else ""
 
 
+def length_check(script):
+    """`./scripts/check-file-size.sh` or `go run ./tools/filecheck .`: a file-length rule no linter config shows."""
+    m = LENGTH_SCRIPT.search(script)
+    return m.group(0) if m else ""
+
+
 def expand(text, scripts, root):
     """`pnpm run build` means whatever package.json says build is: `tsc && tsup` is a typecheck too."""
     text = re.sub(r"\bgolangci-lint run\b", lambda m: f"{m.group(0)} {golangci_formatters(root)}", text)
@@ -123,6 +129,7 @@ def ci_jobs(root):
                         "manual": bool(re.search(r"when:\s*manual", text)),
                         "formatters": golangci_formatters(root) if "golangci-lint run" in script else "",
                         "compiles": go_compiles(script),
+                        "lengthCheck": length_check(script),
                         # A review or secrets job's prompt mentions tests and builds; its name says what it gates.
                         "kinds": [k for k in kinds_of(name) if k in ("review", "secrets")]
                                  or sorted(set(kinds_of(name) + kinds_of(script))),
@@ -134,7 +141,7 @@ def ci_jobs(root):
         text = wf.read_text(errors="replace")
         for job, body in re.findall(r"^  ([\w-]+):\n((?:    .*\n|\n)*)", text, re.M):
             jobs.append({"ci": "github", "name": job, "blocking": "continue-on-error: true" not in body,
-                         "manual": False, "compiles": go_compiles(body),
+                         "manual": False, "compiles": go_compiles(body), "lengthCheck": length_check(body),
                          "kinds": sorted(set(kinds_of(job) + kinds_of(body)))})
     return [j for j in jobs if not j["manual"]]
 
@@ -315,7 +322,7 @@ def audit(root, files):
         })
     return {"root": str(root), "ladder": ladder, "ciJobs": jobs, "hooks": hooks,
             "mergeEnforced": merge_enforced(files), **compliance(root),
-            **friction(root, files, lambda cmd, cwd: foreign(cmd, cwd, root), hooks)}
+            **friction(root, files, lambda cmd, cwd: foreign(cmd, cwd, root), hooks, jobs)}
 
 
 def print_report(rep):
