@@ -56,6 +56,8 @@ GENERATED = re.compile(
 # A file-length rule in any linter this plugin's file-length component knows.
 LENGTH_RULE = re.compile(r"noExcessiveLinesPerFile|[\"']max-lines[\"']|file-length-limit|max-module-lines"
                          r"|\bFileLength\b|file_length|file_max_lines|FileLengthChecker")
+# A CI step that is the rule itself: `./scripts/check-file-size.sh`, `go run ./tools/filecheck .`.
+LENGTH_SCRIPT = re.compile(r"[\w./-]*(?:file[-_]?size|file[-_]?length|filecheck|max[-_]lines)[\w./-]*", re.I)
 LINT_CONFIGS = ("biome.json", "biome.jsonc", "eslint.config.js", "eslint.config.mjs", "eslint.config.cjs",
                 "eslint.config.ts", ".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs", ".oxlintrc.json",
                 ".golangci.yml", ".golangci.yaml", ".golangci.toml", "pyproject.toml", ".pylintrc", "setup.cfg",
@@ -177,7 +179,7 @@ def length_rules(root):
     return found
 
 
-def friction(root, files, foreign, hooks):
+def friction(root, files, foreign, hooks, jobs=()):
     lint, types, codes, fmt = failures(root, foreign)
     told, plugins = instructions_text(files), enabled_plugins(files)
     return {
@@ -189,7 +191,8 @@ def friction(root, files, foreign, hooks):
         "formatFailures": dict(fmt),
         "formatHooks": [h["where"] for h in hooks if h["where"] == "claude PostToolUse" and "format" in h["kinds"]],
         "longFiles": long_files(files),
-        "lengthRules": length_rules(files),
+        "lengthRules": length_rules(files) + [f"{j['lengthCheck']} in blocking CI job {j['name']}"
+                                              for j in jobs if j.get("lengthCheck") and j["blocking"]],
     }
 
 
