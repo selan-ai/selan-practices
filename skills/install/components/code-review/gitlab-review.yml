@@ -78,6 +78,9 @@ review:
     paths: [review.md, gl-code-quality-report.json]
     reports:
       codequality: gl-code-quality-report.json
-  # No process of the agent's is left by now: each stage's container stops with its script.
+  # The script's container, restarted: /tmp still holds the modes, and the stop between stages
+  # ended every process of the agent's.
   after_script:
     - while read -r mode path; do chmod "$mode" "$path"; done < /tmp/review-modes
+    # Config, hooks or a commondir the agent wrote into .git never reach the next job's checkout.
+    - rm -rf "$CI_PROJECT_DIR/.git"
