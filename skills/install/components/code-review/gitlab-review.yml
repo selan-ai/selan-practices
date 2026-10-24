@@ -41,6 +41,7 @@ review:
     # above it, where a rename would swap either. after_script puts back the modes recorded here.
     - |
       rm -f "$RUNNER_TEMP_PROJECT_DIR/.gitlab-runner.ext.conf"
+      install -m 600 /dev/null /tmp/review-modes
       for d in "$CI_BUILDS_DIR" "$(dirname "$CI_PROJECT_DIR")" /cache; do
         if [ -d "$d" ]; then stat -c '%a %n' "$d" >> /tmp/review-modes; chmod go-w "$d"; fi
       done
