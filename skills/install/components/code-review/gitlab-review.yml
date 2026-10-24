@@ -34,23 +34,50 @@ review:
     # on that flag at uid 0. Container images run as root, so drop to a user.
     - install -d -o node -g node /tmp/agent
     - chown -R node:node "$CI_PROJECT_DIR"
+
+    # Out of the agent's reach, since a diff can talk it into anything: the runner's directory
+    # beside the checkout, whose git config holds CI_JOB_TOKEN (deleted; git skips a missing
+    # include) and whose env file every later stage exports as root, and the world-writable volumes
+    # above it, where a rename would swap either. after_script puts back the modes recorded here.
+    - |
+      rm -f "$RUNNER_TEMP_PROJECT_DIR/.gitlab-runner.ext.conf"
+      for d in "$CI_BUILDS_DIR" "$(dirname "$CI_PROJECT_DIR")" /cache; do
+        if [ -d "$d" ]; then stat -c '%a %n' "$d" >> /tmp/review-modes; chmod go-w "$d"; fi
+      done
+      find "$RUNNER_TEMP_PROJECT_DIR" -exec stat -c '%a %n' {} + >> /tmp/review-modes
+      chmod -R go-rw "$RUNNER_TEMP_PROJECT_DIR"
+    # Fails closed: a runner that writes the token into the checkout itself stops the job here.
+    - |
+      if grep -rqF -- "$CI_JOB_TOKEN" "$CI_PROJECT_DIR"; then
+        echo "CI_JOB_TOKEN is in the checkout, where the agent could read it" >&2; exit 1
+      fi
+
+    # The checks and the conversion run as `node` too: root following a link the agent left in
+    # the checkout could overwrite any file. The agent gets named variables, never the job's
+    # environment: CI_JOB_TOKEN and every other secret stay out. SELAN_TOKEN stays because Claude
+    # Code authenticates with it; the CI three are what the prompt and the agent file read.
     - |
       cat > /tmp/review.sh <<'SH'
+      set -e
       export HOME=/tmp/agent
       export CLAUDE_CONFIG_DIR=/tmp/agent/.claude
       selan agent-run code-review \
         "Review this merge request. \`git diff $CI_MERGE_REQUEST_DIFF_BASE_SHA HEAD\` is the change.
          Write your review to $CI_PROJECT_DIR/review.md. Your previous review,
          if there is one, is at $CI_PROJECT_DIR/previous-review.md."
-      SH
-      su -p node -c "sh /tmp/review.sh"
-
-    - |
       [ -s review.md ] || { echo "the agent wrote no review" >&2; exit 1; }
       cp review.md previous-review.md
       node scripts/review-to-codequality.mjs review.md gl-code-quality-report.json
+      SH
+      env -i PATH="$PATH" SELAN_TOKEN="$SELAN_TOKEN" CI_PROJECT_DIR="$CI_PROJECT_DIR" \
+        CI_MERGE_REQUEST_DIFF_BASE_SHA="$CI_MERGE_REQUEST_DIFF_BASE_SHA" \
+        CI_MERGE_REQUEST_TITLE="$CI_MERGE_REQUEST_TITLE" \
+        su -p node -c "sh /tmp/review.sh"
   artifacts:
     when: always
     paths: [review.md, gl-code-quality-report.json]
     reports:
       codequality: gl-code-quality-report.json
+  # No process of the agent's is left by now: each stage's container stops with its script.
+  after_script:
+    - while read -r mode path; do chmod "$mode" "$path"; done < /tmp/review-modes

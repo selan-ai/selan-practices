@@ -25,11 +25,15 @@ files, is https://selan.ai/docs/agents/code-review . Read it before changing a f
 4. Credential. The job runs `selan agent-run`, which needs a Selan CLI token in `SELAN_TOKEN`,
    masked and protected. Without Selan, replace `selan agent-run code-review "<prompt>"` with
    `claude -p --agent code-review --dangerously-skip-permissions "<prompt>"` and set
-   `ANTHROPIC_API_KEY` instead. Tell the user which variable to create and where; never ask
-   for its value and never write it to a file.
+   `ANTHROPIC_API_KEY` instead, naming it in the job's `env -i` line in place of `SELAN_TOKEN`:
+   the agent sees only the variables that line names. Tell the user which variable to create
+   and where; never ask for its value and never write it to a file.
 5. If `.claude/rules/*.md` exist, add to the brief: "Before reviewing, Read every
    `.claude/rules/*.md` whose `paths:` match a file in the diff." Path rules load only on Read,
    and the reviewer reads the diff through `git diff`.
+6. On GitLab, keep the job's `env -i` line and the block that closes the runner's directory to
+   the agent. The agent runs with permissions skipped and reads text the merge request wrote, so
+   it must not see `CI_JOB_TOKEN` or any other job variable.
 
 ## Verify
 
