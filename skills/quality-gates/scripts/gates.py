@@ -60,7 +60,7 @@ def kinds_of(text):
 def package_scripts(root):
     try:
         return json.loads((root / "package.json").read_text()).get("scripts") or {}
-    except (OSError, ValueError):
+    except (OSError, ValueError, AttributeError):
         return {}
 
 
@@ -102,11 +102,26 @@ def length_check(script):
     return m.group(0) if m else ""
 
 
-def expand(text, scripts, root):
-    """`pnpm run build` means whatever package.json says build is: `tsc && tsup` is a typecheck too."""
+def expand(text, scripts, root, followed=None):
+    """`pnpm run build` means whatever package.json says build is: `tsc && tsup` is a typecheck too.
+
+    After `cd fake-selan`, or with `--prefix fake-selan`, `npm test` is fake-selan's package.json's `test`."""
     text = re.sub(r"\bgolangci-lint run\b", lambda m: f"{m.group(0)} {golangci_formatters(root)}", text)
-    return re.sub(r"\b(?:npm|pnpm|yarn)(?: -s)?(?: run)? ([\w:-]+)",
-                  lambda m: f"{m.group(0)} {scripts.get(m.group(1), '')} {wrapped(root, scripts.get(m.group(1), ''))}", text)
+    cwd = [root]
+
+    def script(m):
+        if m.group("cd"):
+            # `cd $CI_PROJECT_DIR` goes back to the root; a job's lines share one shell, so the cd holds.
+            cwd[0] = root if "$" in m.group("cd") else Path(os.path.normpath(cwd[0] / m.group("cd")))
+            return m.group(0)
+        d = Path(os.path.normpath(cwd[0] / m.group("dir"))) if m.group("dir") else cwd[0]
+        body = (package_scripts(d) if d != root else scripts).get(m.group("name"), "")
+        if body and d != root and followed is not None:
+            followed.append(f"`{m.group(0).strip()}` in {os.path.relpath(d, root)}/ is its package.json's `{body}`")
+        return f"{m.group(0)} {body} {wrapped(d, body)}"
+    return re.sub(r"\bcd\s+(['\"]?)(?P<cd>[^\s;&|'\"]+)\1"
+                  r"|\b(?:npm|pnpm|yarn)(?: -s)?(?: (?:--prefix|--dir|--cwd|-C)[ =](?P<dir>\S+))?(?: run)? (?P<name>[\w:-]+)",
+                  script, text)
 
 
 def ci_jobs(root):
@@ -119,10 +134,10 @@ def ci_jobs(root):
             m = re.match(r"^([A-Za-z][\w-]*):\s*$", line)
             if m or line == "END:":
                 if name and name not in RESERVED:
-                    text = "\n".join(body)
+                    text, followed = "\n".join(body), []
                     # Everything but the job's plumbing, so a multi-line `- |` script block is read too.
                     script = expand("\n".join(l for l in body if not re.match(
-                        r"^\s+(rules|- if:|if:|when:|image:|tags:|stage:|needs:|cache:|artifacts:|variables:|services:|- name:|name:|entrypoint:|#)", l)), scripts, root)
+                        r"^\s+(rules|- if:|if:|when:|image:|tags:|stage:|needs:|cache:|artifacts:|variables:|services:|- name:|name:|entrypoint:|#)", l)), scripts, root, followed)
                     jobs.append({
                         "ci": "gitlab", "name": name,
                         "blocking": not re.search(r"allow_failure:\s*true", text),
@@ -130,6 +145,7 @@ def ci_jobs(root):
                         "formatters": golangci_formatters(root) if "golangci-lint run" in script else "",
                         "compiles": go_compiles(script),
                         "lengthCheck": length_check(script),
+                        "followed": followed,
                         # A review or secrets job's prompt mentions tests and builds; its name says what it gates.
                         "kinds": [k for k in kinds_of(name) if k in ("review", "secrets")]
                                  or sorted(set(kinds_of(name) + kinds_of(script))),
@@ -340,6 +356,8 @@ def print_report(rep):
             print(f"  format in {j['name']}: its `golangci-lint run` also fails on {', '.join(j['formatters'].split())}, enabled under formatters: in the golangci config")
         if j.get("compiles") and j["blocking"]:
             print(f"  build in {j['name']}: its `{j['compiles']}` fails on a compile error in any package, cmd/ included, so a `go build` job would add only linking")
+        for f in j.get("followed") or []:
+            print(f"  in {j['name']}: {f}")
     me = rep["mergeEnforced"]
     if me is None:
         print("Merge enforcement: unknown (no gitlab/github remote, or no glab/gh login)")
