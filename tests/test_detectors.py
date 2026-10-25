@@ -110,6 +110,23 @@ class GoBuild(Sandbox):
         self.assertEqual(jobs["build"]["compiles"], "")
 
 
+class SubdirectoryScripts(Sandbox):
+    def test_npm_after_cd_or_with_prefix_reads_that_directorys_package_json(self):
+        (self.root / "package.json").write_text('{"scripts": {"test": "jest"}}')
+        (self.root / "fake").mkdir()
+        (self.root / "fake" / "package.json").write_text('{"scripts": {"test": "tsc && node --test test/"}}')
+        (self.root / ".gitlab-ci.yml").write_text(
+            "test:\n  script:\n    - cd fake\n    - npm ci\n    - npm test\n"
+            "prefix:\n  script:\n    - npm --prefix fake test\n"
+            "back:\n  script:\n    - cd fake && cd ..\n    - npm test\n")
+        jobs = {j["name"]: j for j in gates.ci_jobs(self.root)}
+        self.assertIn("typecheck", jobs["test"]["kinds"])
+        self.assertEqual(jobs["test"]["followed"], ["`npm test` in fake/ is its package.json's `tsc && node --test test/`"])
+        self.assertIn("typecheck", jobs["prefix"]["kinds"])
+        self.assertNotIn("typecheck", jobs["back"]["kinds"])
+        self.assertEqual(jobs["back"]["followed"], [])
+
+
 class ShellSetup(unittest.TestCase):
     def test_splits_the_setup_in_front_of_a_command_and_writes_home_one_way(self):
         home = digest.HOME_DIR
