@@ -110,6 +110,26 @@ class GoBuild(Sandbox):
         self.assertEqual(jobs["build"]["compiles"], "")
 
 
+class CiComments(Sandbox):
+    def test_a_comment_above_the_next_job_is_not_the_previous_jobs_script(self):
+        (self.root / ".gitlab-ci.yml").write_text(
+            "deploy:\n  variables:\n    KEY: abc # gitleaks:allow\n  script:\n    - ./deploy.sh\n"
+            "\n# gitleaks over the merge request's commits; e2e runs nightly\n"
+            "secrets:\n  script:\n    - gitleaks git\n")
+        jobs = {j["name"]: j for j in gates.ci_jobs(self.root)}
+        self.assertEqual(jobs["deploy"]["kinds"], [])
+        self.assertEqual(jobs["secrets"]["kinds"], ["secrets"])
+
+    def test_golangci_complexity_linters_are_the_budget_and_says_so(self):
+        (self.root / ".golangci.yml").write_text(
+            "linters:\n  enable:\n    - gocognit # cognitive complexity 20\n    - funlen\n    - lll\n"
+            "  settings:\n    gocyclo:\n      min-complexity: 10\n")
+        (self.root / ".gitlab-ci.yml").write_text("lint:\n  script:\n    - golangci-lint run ./...\n")
+        lint = gates.ci_jobs(self.root)[0]
+        self.assertIn("budget", lint["kinds"])
+        self.assertEqual(lint["golangciBudget"], "gocognit funlen")
+
+
 class SubdirectoryScripts(Sandbox):
     def test_npm_after_cd_or_with_prefix_reads_that_directorys_package_json(self):
         (self.root / "package.json").write_text('{"scripts": {"test": "jest"}}')
