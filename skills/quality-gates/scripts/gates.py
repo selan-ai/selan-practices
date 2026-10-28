@@ -26,7 +26,8 @@ KINDS = [
     ("unit", r"\bjest\b|vitest|go test|pytest|\btest(:quiet|:coverage)?\b|check\.sh|test\.sh"),
     ("integration", r"integration"),
     ("e2e", r"playwright|\be2e\b"),
-    ("budget", r"comment-budget|file-size|file-length|filecheck|size-limit|complexity"),
+    # gocognit, funlen and the like: golangci-lint's own complexity caps, named after `golangci-lint run` by expand().
+    ("budget", r"comment-budget|file-size|file-length|filecheck|size-limit|complexity|gocognit|gocyclo|cyclop|funlen|nestif|maintidx"),
     ("secrets", r"gitleaks|trufflehog|detect-secrets|secret-scan|scan-secrets"),
     ("review", r"agent-run code-review|claude -p .*review|^review$"),
 ]
@@ -38,6 +39,8 @@ COMMIT = re.compile(r"(^|[;&|]\s*)git( -C \S+)? commit\b")
 WRAPPER = re.compile(r"^(?:node|tsx|bun|deno run)(?: --?[\w=-]+)* (\S+\.[cm]?[jt]s)\b")
 LITERAL = re.compile(r"""'([^'\n]{1,60})'|"([^"\n]{1,60})"|`([^`\n]{1,60})`""")
 GO_COMPILES = re.compile(r"\bgo (?:vet|test)\b[^\n]*?\./\.\.\.")
+# YAML's comment: a `#` at the start or after a space. `$#`, `${x#y}` and a URL's `#frag` stay.
+COMMENT = re.compile(r"(?:^|\s)#.*$", re.M)
 FAILED = re.compile(r"(?:pipeline FAILED|Pipeline failed)[^\n]*?(?:jobs:|:)\s*([\w ,:.-]+)", re.I)
 
 
@@ -76,18 +79,27 @@ def wrapped(root, script):
     return " ".join("".join(s) for s in LITERAL.findall(text))
 
 
-def golangci_formatters(root):
-    """golangci-lint v2 `run` also fails on the formatters its config enables: `formatters: enable: [gofmt]`."""
+def golangci_enabled(root, section, names):
+    """golangci-lint v2 `run` also fails on what its config enables: `formatters: enable: [gofmt]`, `linters: enable: [gocognit]`."""
     for name in (".golangci.yml", ".golangci.yaml", ".golangci.toml"):
         try:
             text = re.sub(r"(?m)#.*$", "", (root / name).read_text(errors="replace"))
         except OSError:
             continue
-        m = re.search(r"(?ms)^(?:formatters:|\[formatters\])\s*$(.*?)(?=^[\w\[]|\Z)", text)
-        # Only an `enable` list turns a formatter on; `settings:` alone configures one that never runs.
+        m = re.search(rf"(?ms)^(?:{section}:|\[{section}\])\s*$(.*?)(?=^[\w\[]|\Z)", text)
+        # Only an `enable` list turns one on; `settings:` alone configures one that never runs.
         enabled = m and re.search(r"(?ms)^\s*enable\s*[:=]\s*(\[.*?\]|(?:\s*- .*?$)+)", m.group(1))
-        return " ".join(re.findall(r"\b(?:gofmt|gofumpt|goimports|golines|gci)\b", enabled.group(1))) if enabled else ""
+        return " ".join(re.findall(rf"\b(?:{names})\b", enabled.group(1))) if enabled else ""
     return ""
+
+
+def golangci_formatters(root):
+    return golangci_enabled(root, "formatters", "gofmt|gofumpt|goimports|golines|gci")
+
+
+def golangci_budget(root):
+    """gocognit 20, funlen 150: a complexity budget that only the golangci config shows."""
+    return golangci_enabled(root, "linters", "gocognit|gocyclo|cyclop|funlen|nestif|maintidx")
 
 
 def go_compiles(script):
@@ -106,7 +118,7 @@ def expand(text, scripts, root, followed=None):
     """`pnpm run build` means whatever package.json says build is: `tsc && tsup` is a typecheck too.
 
     After `cd fake-selan`, or with `--prefix fake-selan`, `npm test` is fake-selan's package.json's `test`."""
-    text = re.sub(r"\bgolangci-lint run\b", lambda m: f"{m.group(0)} {golangci_formatters(root)}", text)
+    text = re.sub(r"\bgolangci-lint run\b", lambda m: f"{m.group(0)} {golangci_formatters(root)} {golangci_budget(root)}", text)
     cwd = [root]
 
     def script(m):
@@ -143,6 +155,7 @@ def ci_jobs(root):
                         "blocking": not re.search(r"allow_failure:\s*true", text),
                         "manual": bool(re.search(r"when:\s*manual", text)),
                         "formatters": golangci_formatters(root) if "golangci-lint run" in script else "",
+                        "golangciBudget": golangci_budget(root) if "golangci-lint run" in script else "",
                         "compiles": go_compiles(script),
                         "lengthCheck": length_check(script),
                         "followed": followed,
@@ -152,9 +165,11 @@ def ci_jobs(root):
                     })
                 name, body = (m.group(1) if m else None), []
             elif name:
-                body.append(line)
+                # A comment is not a command: the `# gitleaks over the MR's commits` above `secrets:` is
+                # read before that job starts, so it would make the job above it a secret scan.
+                body.append(COMMENT.sub("", line))
     for wf in (root / ".github" / "workflows").glob("*.y*ml"):
-        text = wf.read_text(errors="replace")
+        text = COMMENT.sub("", wf.read_text(errors="replace"))
         for job, body in re.findall(r"^  ([\w-]+):\n((?:    .*\n|\n)*)", text, re.M):
             jobs.append({"ci": "github", "name": job, "blocking": "continue-on-error: true" not in body,
                          "manual": False, "compiles": go_compiles(body), "lengthCheck": length_check(body),
@@ -354,6 +369,8 @@ def print_report(rep):
     for j in rep["ciJobs"]:
         if j.get("formatters"):
             print(f"  format in {j['name']}: its `golangci-lint run` also fails on {', '.join(j['formatters'].split())}, enabled under formatters: in the golangci config")
+        if j.get("golangciBudget"):
+            print(f"  budget in {j['name']}: its `golangci-lint run` also fails on {', '.join(j['golangciBudget'].split())}, enabled under linters: in the golangci config")
         if j.get("compiles") and j["blocking"]:
             print(f"  build in {j['name']}: its `{j['compiles']}` fails on a compile error in any package, cmd/ included, so a `go build` job would add only linking")
         for f in j.get("followed") or []:
