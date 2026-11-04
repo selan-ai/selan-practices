@@ -38,7 +38,7 @@ to prove it passes on the current tree, and show the diff. Never commit.
 | Report line | Proposal |
 | --- | --- |
 | Merge enforcement: OFF | Lead with this: every "CI blocks" cell is a suggestion until the project requires a green pipeline (GitLab "Pipelines must succeed", GitHub required status checks). It is a project setting, not a file: say so and name the setting. |
-| A rung CI runs only on the default branch, none on merge requests | A blocking MR job for it: the merge is the gate, not the deploy. |
+| `<rung> off merge requests: CI runs it only in <job> (schedule\|default branch\|tag)` | A blocking MR job for it: the merge is the gate, not the deploy or the nightly run. Where the check needs what exists only after the merge (a deployed environment), say so: it is an alarm after the merge, not a gate. The CI columns of the ladder list only jobs a merge request runs. |
 | lint, typecheck, build or unit with no blocking CI job | Add it to the blocking test job. |
 | A rung with only a local command | A blocking CI job; a local command alone is a suggestion. |
 | Commits with no check since the last edit, a fifth or more | A `PreToolUse` hook on `Bash(git commit*)` that runs the quiet check and blocks on failure. Name the quiet check; if there is none, propose it first. |

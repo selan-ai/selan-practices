@@ -130,6 +130,25 @@ class CiComments(Sandbox):
         self.assertEqual(lint["golangciBudget"], "gocognit funlen")
 
 
+class OffMergeRequests(Sandbox):
+    def test_a_scheduled_or_default_branch_job_gates_no_merge_and_says_so(self):
+        (self.root / ".gitlab-ci.yml").write_text(
+            "test:\n  rules:\n    - if: $CI_PIPELINE_SCHEDULE_DESCRIPTION =~ /^nightly/\n      when: never\n"
+            "    - when: on_success\n  script:\n    - go test ./...\n"
+            "nightly:\n  rules:\n    - if: $CI_PIPELINE_SOURCE == \"schedule\" && $CI_PIPELINE_SCHEDULE_DESCRIPTION =~ /^nightly/\n"
+            "  script:\n    - npx playwright test\n"
+            ".deploy:\n  rules:\n    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == \"push\"\n"
+            "      changes:\n        - cmd/**/*\n  when: manual\n"
+            "deploy-dev:\n  extends: .deploy\n  script:\n    - docker build .\n"
+            "secrets:\n  rules:\n    - if: $CI_PIPELINE_SOURCE == \"merge_request_event\"\n  script:\n    - gitleaks git\n")
+        jobs = {j["name"]: j for j in gates.ci_jobs(self.root)}
+        self.assertEqual({n: j["offMR"] for n, j in jobs.items()},
+                         {"test": "", "nightly": "schedule", "deploy-dev": "default branch", "secrets": ""})
+        ladder = {r["kind"]: r for r in gates.audit(self.root, self.root)["ladder"]}
+        self.assertEqual((ladder["e2e"]["ciBlocking"], ladder["e2e"]["ciOffMR"]), ([], ["nightly (schedule)"]))
+        self.assertEqual((ladder["build"]["ciBlocking"], ladder["build"]["ciOffMR"]), (["test"], ["deploy-dev (default branch)"]))
+
+
 class SubdirectoryScripts(Sandbox):
     def test_npm_after_cd_or_with_prefix_reads_that_directorys_package_json(self):
         (self.root / "package.json").write_text('{"scripts": {"test": "jest"}}')
