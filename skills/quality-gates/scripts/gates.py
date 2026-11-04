@@ -41,6 +41,13 @@ LITERAL = re.compile(r"""'([^'\n]{1,60})'|"([^"\n]{1,60})"|`([^`\n]{1,60})`""")
 GO_COMPILES = re.compile(r"\bgo (?:vet|test)\b[^\n]*?\./\.\.\.")
 # YAML's comment: a `#` at the start or after a space. `$#`, `${x#y}` and a URL's `#frag` stay.
 COMMENT = re.compile(r"(?:^|\s)#.*$", re.M)
+# A rule condition no merge request pipeline meets: it is a schedule's, the default branch's or a tag's.
+OFF_MR = [
+    ("schedule", r"\$CI_PIPELINE_SOURCE\s*==\s*[\"']?schedule\b|\$CI_PIPELINE_SCHEDULE_\w+\s*=~|\$CI_PIPELINE_SCHEDULE_\w+\s*=="),
+    ("tag", r"^\$CI_COMMIT_TAG\s*(?:$|=~|==\s*[\"'/]|!=\s*null)"),
+    ("default branch", r"\$CI_COMMIT_(?:BRANCH|REF_NAME)\s*==\s*(?:\$CI_DEFAULT_BRANCH|[\"']?(?:main|master)\b)"),
+    ("web, api or trigger", r"\$CI_PIPELINE_SOURCE\s*==\s*[\"']?(?:web|api|trigger|pipeline|parent_pipeline)\b"),
+]
 FAILED = re.compile(r"(?:pipeline FAILED|Pipeline failed)[^\n]*?(?:jobs:|:)\s*([\w ,:.-]+)", re.I)
 
 
@@ -136,43 +143,90 @@ def expand(text, scripts, root, followed=None):
                   script, text)
 
 
+def off_mr(cond):
+    """Where `- if: <cond>` sends a job, when that is never a merge request pipeline; None when it may be one."""
+    places = []
+    for alt in cond.split("||"):
+        terms = [t.strip().strip("()").strip() for t in alt.split("&&")]
+        place = next((k for k, p in OFF_MR for t in terms if re.search(p, t)), None)
+        if place is None:
+            return None
+        places.append(place)
+    return places
+
+
+def runs_off_mr(text):
+    """`devflow` runs on a schedule only, `deploy-dev` on the default branch only: neither ever gates a merge.
+
+    Rules are read in order, first match wins; "" when a merge request pipeline can run the job."""
+    m = re.search(r"(?m)^([ \t]+)rules:[ \t]*\n((?:\1[ \t]+.*\n?|[ \t]*\n)*)", text)
+    if not m:
+        return ""
+    places = []
+    # A rule is a list item at the first item's indent; a deeper `- path` belongs to its `changes:`.
+    item = re.match(r"(?:[ \t]*\n)*([ \t]*)- ", m.group(2))
+    for rule in re.split(rf"(?m)^{item.group(1) if item else ''}- ", m.group(2))[1:]:
+        cond = re.search(r"(?m)^[ \t]*if:[ \t]*(.+?)[ \t]*$", rule)
+        never = bool(re.search(r"\bwhen:\s*never\b", rule))
+        if not cond:
+            if re.match(r"\s*(?:!reference|<<|changes:|exists:)", rule):
+                return ""  # a rule this reader cannot evaluate: assume it runs on merge requests
+            return ", ".join(dict.fromkeys(places)) or "no pipeline" if never else ""
+        off = off_mr(cond.group(1))
+        if off is None and not never:
+            return ""
+        if off and not never:
+            places += off
+    return ", ".join(dict.fromkeys(places)) or "no pipeline"
+
+
 def ci_jobs(root):
     """GitLab and GitHub jobs, parsed by indentation: enough to name a job, its script and whether it blocks."""
     jobs, scripts = [], package_scripts(root)
     gl = root / ".gitlab-ci.yml"
+    blocks = {}
     if gl.is_file():
         name, body = None, []
+        # `.deploy:` starts a block too: a hidden template is not the job above it, though jobs extend it.
         for line in gl.read_text(errors="replace").splitlines() + ["END:"]:
-            m = re.match(r"^([A-Za-z][\w-]*):\s*$", line)
+            m = re.match(r"^(\.?[A-Za-z][\w.-]*):\s*$", line)
             if m or line == "END:":
                 if name and name not in RESERVED:
-                    text, followed = "\n".join(body), []
-                    # Everything but the job's plumbing, so a multi-line `- |` script block is read too.
-                    script = expand("\n".join(l for l in body if not re.match(
-                        r"^\s+(rules|- if:|if:|when:|image:|tags:|stage:|needs:|cache:|artifacts:|variables:|services:|- name:|name:|entrypoint:|#)", l)), scripts, root, followed)
-                    jobs.append({
-                        "ci": "gitlab", "name": name,
-                        "blocking": not re.search(r"allow_failure:\s*true", text),
-                        "manual": bool(re.search(r"when:\s*manual", text)),
-                        "formatters": golangci_formatters(root) if "golangci-lint run" in script else "",
-                        "golangciBudget": golangci_budget(root) if "golangci-lint run" in script else "",
-                        "compiles": go_compiles(script),
-                        "lengthCheck": length_check(script),
-                        "followed": followed,
-                        # A review or secrets job's prompt mentions tests and builds; its name says what it gates.
-                        "kinds": [k for k in kinds_of(name) if k in ("review", "secrets")]
-                                 or sorted(set(kinds_of(name) + kinds_of(script))),
-                    })
+                    blocks[name] = body
                 name, body = (m.group(1) if m else None), []
             elif name:
                 # A comment is not a command: the `# gitleaks over the MR's commits` above `secrets:` is
                 # read before that job starts, so it would make the job above it a secret scan.
                 body.append(COMMENT.sub("", line))
+    for name, body in blocks.items():
+        if name.startswith("."):
+            continue
+        text, followed = "\n".join(body), []
+        # A job with no rules of its own takes them from the template it extends.
+        parent = re.search(r"(?m)^\s+extends:\s*\[?\s*['\"]?(\.[\w.-]+)", text)
+        rules = text if re.search(r"(?m)^\s+rules:", text) or not parent else "\n".join(blocks.get(parent.group(1), []))
+        # Everything but the job's plumbing, so a multi-line `- |` script block is read too.
+        script = expand("\n".join(l for l in body if not re.match(
+            r"^\s+(rules|- if:|if:|when:|image:|tags:|stage:|needs:|cache:|artifacts:|variables:|services:|- name:|name:|entrypoint:|#)", l)), scripts, root, followed)
+        jobs.append({
+            "ci": "gitlab", "name": name,
+            "blocking": not re.search(r"allow_failure:\s*true", text),
+            "manual": bool(re.search(r"when:\s*manual", text)),
+            "offMR": runs_off_mr(rules + "\n"),
+            "formatters": golangci_formatters(root) if "golangci-lint run" in script else "",
+            "golangciBudget": golangci_budget(root) if "golangci-lint run" in script else "",
+            "compiles": go_compiles(script),
+            "lengthCheck": length_check(script),
+            "followed": followed,
+            # A review or secrets job's prompt mentions tests and builds; its name says what it gates.
+            "kinds": [k for k in kinds_of(name) if k in ("review", "secrets")]
+                     or sorted(set(kinds_of(name) + kinds_of(script))),
+        })
     for wf in (root / ".github" / "workflows").glob("*.y*ml"):
         text = COMMENT.sub("", wf.read_text(errors="replace"))
         for job, body in re.findall(r"^  ([\w-]+):\n((?:    .*\n|\n)*)", text, re.M):
             jobs.append({"ci": "github", "name": job, "blocking": "continue-on-error: true" not in body,
-                         "manual": False, "compiles": go_compiles(body), "lengthCheck": length_check(body),
+                         "manual": False, "offMR": "", "compiles": go_compiles(body), "lengthCheck": length_check(body),
                          "kinds": sorted(set(kinds_of(job) + kinds_of(body)))})
     return [j for j in jobs if not j["manual"]]
 
@@ -348,8 +402,10 @@ def audit(root, files):
             "kind": kind,
             "local": [c for c, ks in cmds.items() if kind in ks][:3],
             "hook": [h["where"] for h in hooks if kind in h["kinds"]],
-            "ciBlocking": [j["name"] for j in jobs if kind in j["kinds"] and j["blocking"]],
-            "ciAdvisory": [j["name"] for j in jobs if kind in j["kinds"] and not j["blocking"]],
+            # The CI columns are what a merge request runs; a scheduled or default-branch job gates no merge.
+            "ciBlocking": [j["name"] for j in jobs if kind in j["kinds"] and j["blocking"] and not j["offMR"]],
+            "ciAdvisory": [j["name"] for j in jobs if kind in j["kinds"] and not j["blocking"] and not j["offMR"]],
+            "ciOffMR": [f"{j['name']} ({j['offMR']})" for j in jobs if kind in j["kinds"] and j["offMR"]],
         })
     return {"root": str(root), "ladder": ladder, "ciJobs": jobs, "hooks": hooks,
             "mergeEnforced": merge_enforced(files), **compliance(root),
@@ -363,9 +419,12 @@ def print_report(rep):
     for r in rep["ladder"]:
         cell = lambda xs, w: (", ".join(xs) or "-")[:w]
         print(f"  {r['kind']:<12} {cell(r['local'], 34):<34} {cell(r['hook'], 26):<26} {cell(r['ciBlocking'], 22):<22} {cell(r['ciAdvisory'], 30)}")
-    missing = [r["kind"] for r in rep["ladder"] if not (r["local"] or r["hook"] or r["ciBlocking"] or r["ciAdvisory"])]
+    missing = [r["kind"] for r in rep["ladder"] if not (r["local"] or r["hook"] or r["ciBlocking"] or r["ciAdvisory"] or r["ciOffMR"])]
     if missing:
         print(f"  nowhere: {', '.join(missing)}")
+    for r in rep["ladder"]:
+        if r["ciOffMR"] and not (r["ciBlocking"] or r["ciAdvisory"]):
+            print(f"  {r['kind']} off merge requests: CI runs it only in {', '.join(r['ciOffMR'])}, none on merge requests")
     for j in rep["ciJobs"]:
         if j.get("formatters"):
             print(f"  format in {j['name']}: its `golangci-lint run` also fails on {', '.join(j['formatters'].split())}, enabled under formatters: in the golangci config")
